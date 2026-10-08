@@ -1,32 +1,14 @@
-services:
-  backend:
+﻿services:
+  app:
     build:
-      context: ./backend
-    command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
     environment:
-      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-dev-only-change-this-key}
       DJANGO_DEBUG: "true"
-      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,backend
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,backend,app
       CORS_ALLOWED_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
-      DATABASE_URL: "${DATABASE_URL:?Configura DATABASE_URL en el archivo .env}"
     ports:
       - "8000:8000"
-    volumes:
-      - ./backend:/app
-
-  frontend:
-    build:
-      context: ./frontend
-    command: npm run dev -- --host 0.0.0.0
-    environment:
-      VITE_API_URL: http://127.0.0.1:8000/api
-    ports:
       - "5173:5173"
-    volumes:
-      - ./frontend:/app
-      - frontend_node_modules:/app/node_modules
-    depends_on:
-      - backend
-
-volumes:
-  frontend_node_modules:
