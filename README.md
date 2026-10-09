@@ -6,11 +6,11 @@ Aplicación web académica para gestionar pedidos y domicilios de un restaurante
 
 - API: Django 5.2, Django REST Framework y Simple JWT.
 - Web: React 19, Vite 8 y Tailwind CSS 4.
-- Base de datos: PostgreSQL administrado en Supabase.
+- Persistencia definitiva: pendiente de acuerdo. La conexión a Supabase/PostgreSQL que usa actualmente el prototipo es provisional y debe revisarse cuando el equipo y el profesor definan la base de datos.
 
 ## Requisitos
 
-Para ejecutar todo el equipo con versiones iguales, usa Docker Desktop y Compose. Si trabajas sin Docker, usa Python `3.12.15` y Node.js `24.21.0` (también anotadas en `backend/.python-version` y `frontend/.nvmrc`). Necesitas un proyecto de Supabase y su URL de conexión a PostgreSQL.
+Para ejecutar todo el equipo con versiones iguales, usa Docker Desktop y Compose. La imagen se construye desde el único `Dockerfile` de la raíz: incluye Python `3.12.15` y Node.js `24.21.0` (también anotadas en `backend/.python-version` y `frontend/.nvmrc`). Para ejecutar la configuración provisional actual necesitas un proyecto de Supabase y su URL de conexión a PostgreSQL. La elección definitiva de base de datos sigue pendiente.
 
 ## Ejecutar con Docker (recomendado para el equipo)
 
@@ -29,23 +29,23 @@ notepad .env
 docker compose up --build
 ```
 
-La primera ejecución construye las imágenes y aplica las migraciones a Supabase automáticamente. Luego abre `http://localhost:5173`. La API queda en `http://localhost:8000/api/` y el panel administrativo en `http://localhost:8000/admin/`. Para detener ambos servicios, presiona **Ctrl + C** en esa terminal. Los datos quedan en PostgreSQL de Supabase.
+La primera ejecución construye una imagen y crea **un solo contenedor**. Dentro de él, Django escucha en el puerto 8000 y Vite/React en el 5173; Django aplica las migraciones a Supabase al arrancar. Abre `http://localhost:5173`. La API queda en `http://localhost:8000/api/` y el panel administrativo en `http://localhost:8000/admin/`. Para detener el contenedor, presiona **Ctrl + C** en esa terminal. Los datos quedan en PostgreSQL de Supabase.
 
 Para cargar los productos de demostración, abre otra terminal en la carpeta raíz y ejecuta:
 
 ```powershell
-docker compose exec backend python manage.py seed_demo
+docker compose exec app python manage.py seed_demo
 ```
 
 Para crear la cuenta que ingresa al panel administrativo:
 
 ```powershell
-docker compose exec backend python manage.py createsuperuser
+docker compose exec app python manage.py createsuperuser
 ```
 
 Para volver a iniciar el proyecto después, ejecuta `docker compose up`. Para detener y quitar los contenedores usa `docker compose down`. Esto no borra los datos de Supabase.
 
-Docker fija Python `3.12.15` y Node.js `24.21.0`. El backend instala dependencias exactas desde `backend/requirements.txt`. En la primera preparación del frontend, `npm install` actualiza y genera `frontend/package-lock.json`; inclúyanlo en Git para que todo el equipo use el mismo árbol de dependencias.
+El `Dockerfile` fija Python `3.12.15` y Node.js `24.21.0`, instala las dependencias del backend desde `backend/requirements.txt` y las del frontend desde `frontend/package.json`.
 
 ## Publicar en GitHub
 
@@ -151,4 +151,6 @@ Para crear un pedido, `POST /api/orders/` recibe `branch`, `delivery_address`, `
 
 ## Documentos del proyecto
 
-El backlog, el plan inicial de sprints, la arquitectura y la Definition of Done están en `docs/plan_inicial.md` y `docs/arquitectura_y_modelo.md`. Completa nombres, fechas y acuerdos que el profesor dé en clase.
+El plan inicial, la arquitectura preliminar y las decisiones pendientes están en `docs/plan_inicial.md` y `docs/arquitectura_y_modelo.md`. El Product Backlog, el Release Plan, el modelo de datos y la Definition of Done están pendientes de definición con el equipo y el profesor.
+
+

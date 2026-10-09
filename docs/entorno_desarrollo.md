@@ -4,16 +4,16 @@
 
 | Componente | Versión / servicio | Configuración |
 |---|---|---|
-| Python | 3.12.15 | `backend/.python-version`, `backend/Dockerfile` |
+| Python | 3.12.15 | `backend/.python-version`, `Dockerfile` |
 | Django | 5.2.18 | `backend/requirements.txt` |
 | Django REST Framework | 3.16.1 | `backend/requirements.txt` |
-| PostgreSQL | Proyecto Supabase del equipo | `DATABASE_URL` en el `.env` local |
-| Node.js | 24.21.0 | `frontend/.nvmrc`, `frontend/Dockerfile` |
+| PostgreSQL | Conexión provisional del prototipo a Supabase | `DATABASE_URL` en el `.env` local; la decisión final del equipo está pendiente |
+| Node.js | 24.21.0 | `frontend/.nvmrc`, etapa Node del `Dockerfile` raíz |
 | React | 19.3.0 | `frontend/package.json` |
 | Tailwind CSS | 4.3.3 | `frontend/package.json`, plugin en `vite.config.js` |
 | Vite | 8.3.4 | `frontend/package.json` |
 
-El `.env` contiene la URL de conexión y no se sube a GitHub. `frontend/package-lock.json` debe actualizarse con `npm install` y subirse al repositorio para fijar también las dependencias indirectas.
+La tabla describe el prototipo ejecutable actual, no una decisión definitiva sobre la base de datos. El motor/proveedor y el modelo final están pendientes de acuerdo del equipo y del profesor. El `.env` contiene la URL de conexión provisional y no se sube a GitHub. `frontend/package-lock.json` debe actualizarse con `npm install` y subirse al repositorio para fijar también las dependencias indirectas.
 
 ## 1. Preparar Supabase una sola vez
 
@@ -50,11 +50,11 @@ Direcciones locales:
 - API Django: `http://localhost:8000/api/`
 - Administración Django: `http://localhost:8000/admin/`
 
-Al iniciar, Django aplica las migraciones de la app en Supabase. En otra terminal abierta en la raíz se cargan los datos demo y se crea el superusuario:
+Compose construye una sola imagen y ejecuta un contenedor que contiene Django y React/Vite. Al iniciar, Django aplica las migraciones en Supabase. En otra terminal abierta en la raíz se cargan los datos demo y se crea el superusuario:
 
 ```powershell
-docker compose exec backend python manage.py seed_demo
-docker compose exec backend python manage.py createsuperuser
+docker compose exec app python manage.py seed_demo
+docker compose exec app python manage.py createsuperuser
 ```
 
 El superusuario se crea una sola vez por proyecto/base de datos. Para detener los servicios, vuelve a la primera terminal y presiona **Ctrl + C**. `docker compose down` quita los contenedores; conserva los datos en Supabase.
@@ -120,8 +120,9 @@ Antes de subir, verifica que `.env` no aparezca en `git status`. El repositorio 
 
 ## Archivos principales de entorno
 
-- `compose.yaml`: inicia backend y frontend.
-- `backend/Dockerfile`, `frontend/Dockerfile`: fijan Python y Node.
+- `Dockerfile`: construye la imagen única con Node.js y Python.
+- `start-services.mjs`: ejecuta migraciones y mantiene Django y Vite activos dentro del contenedor.
+- `compose.yaml`: ejecuta un solo contenedor y publica los puertos 8000 y 5173.
 - `backend/requirements.txt`: fija dependencias del backend, incluido Psycopg 3 y el parser de `DATABASE_URL`.
 - `frontend/package.json` y `frontend/package-lock.json`: dependencias del frontend.
 - `.env.example`: plantilla de configuración; se copia a `.env` local.
@@ -134,3 +135,4 @@ No se incluye diagrama BPMN en esta carpeta.
 - [Tailwind CSS con Vite](https://tailwindcss.com/docs/installation/using-vite)
 - [Conectar a PostgreSQL en Supabase](https://supabase.com/docs/guides/database/connecting-to-postgres)
 - [Soporte de PostgreSQL en Django 5.2](https://docs.djangoproject.com/en/5.2/ref/databases/#postgresql-notes)
+
