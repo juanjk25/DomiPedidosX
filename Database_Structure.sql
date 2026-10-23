@@ -67,10 +67,7 @@ CREATE TABLE Empleado(
     fecha_nacimiento DATE NOT NULL,
     telefono_empleado VARCHAR(15),
     correo_empleado VARCHAR(100) UNIQUE,
-    fecha_contrato DATE DEFAULT CURRENT_DATE,
-    salario NUMERIC(12,2) NOT NULL CHECK(salario>0),
-    tipo_empleado VARCHAR(20) NOT NULL CHECK(tipo_empleado IN ('Cajero', 'Repartidor', 'Operador_Sede')),
-
+    
     CHECK(
         fecha_nacimiento <=
         CURRENT_DATE - INTERVAL '18 years'
