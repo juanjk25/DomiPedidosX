@@ -4,148 +4,226 @@ from django.shortcuts import get_object_or_404
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-from .models import Branch, Category, CustomerAddress, Order, Product
-from .permissions import IsOrderManager, IsStaffRole, role_of
-from .serializers import BranchSerializer, CategorySerializer, CustomerAddressSerializer, CustomerListSerializer, OrderCreateSerializer, OrderSerializer, ProductSerializer, RegisterSerializer, UserSerializer
+
+from .models import Cliente, Pedido, Producto, Sede
+from .serializers import (
+    ClienteSerializer,
+    CustomerAddressSerializer,
+    DetallePedidoSerializer,
+    PedidoSerializer,
+    ProductoSerializer,
+    RegisterSerializer,
+    SedeSerializer,
+)
+
 User = get_user_model()
 
+
+def current_cliente(user):
+    return get_object_or_404(Cliente, credencial__usuario=user)
+
+
 class RegisterView(generics.CreateAPIView):
-    queryset = User.objects.all()
     serializer_class = RegisterSerializer
     permission_classes = [permissions.AllowAny]
 
+
 class MeView(generics.RetrieveUpdateAPIView):
-    serializer_class = UserSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
     def get_object(self):
-        return self.request.user
+        return current_cliente(self.request.user)
+
+    def get_serializer_class(self):
+        return ClienteSerializer
+
 
 class BranchListView(generics.ListAPIView):
-    queryset = Branch.objects.filter(is_active=True)
-    serializer_class = BranchSerializer
+    queryset = Sede.objects.all()
+    serializer_class = SedeSerializer
     permission_classes = [permissions.AllowAny]
 
-class CategoryListView(generics.ListAPIView):
-    queryset = Category.objects.filter(is_active=True)
-    serializer_class = CategorySerializer
+
+class CategoryListView(APIView):
     permission_classes = [permissions.AllowAny]
 
-class CustomerAddressListCreateView(generics.ListCreateAPIView):
-    serializer_class = CustomerAddressSerializer
-    permission_classes = [permissions.IsAuthenticated]
-    def get_queryset(self):
-        return CustomerAddress.objects.filter(customer=self.request.user)
-    def perform_create(self, serializer):
-        make_default = serializer.validated_data.get("is_default", False) or not self.get_queryset().exists()
-        if make_default:
-            self.get_queryset().update(is_default=False)
-        serializer.save(customer=self.request.user, is_default=make_default)
+    def get(self, _request):
+        categories = (
+            Producto.objects.filter(activo=True)
+            .values("tipo_de_producto")
+            .distinct()
+            .order_by("tipo_de_producto")
+        )
+        return Response(
+            [
+                {"id": index + 1, "name": item["tipo_de_producto"]}
+                for index, item in enumerate(categories)
+            ]
+        )
 
-class CustomerAddressDetailView(generics.RetrieveUpdateDestroyAPIView):
-    serializer_class = CustomerAddressSerializer
-    permission_classes = [permissions.IsAuthenticated]
-    def get_queryset(self):
-        return CustomerAddress.objects.filter(customer=self.request.user)
-    def perform_update(self, serializer):
-        make_default = serializer.validated_data.get("is_default", self.get_object().is_default)
-        if make_default:
-            self.get_queryset().exclude(pk=self.get_object().pk).update(is_default=False)
-        serializer.save(is_default=make_default)
-    def perform_destroy(self, instance):
-        customer = instance.customer
-        was_default = instance.is_default
-        instance.delete()
-        if was_default:
-            replacement = CustomerAddress.objects.filter(customer=customer).first()
-            if replacement:
-                replacement.is_default = True
-                replacement.save(update_fields=["is_default"])
-
-class CustomerListView(generics.ListAPIView):
-    serializer_class = CustomerListSerializer
-    permission_classes = [permissions.IsAuthenticated, IsOrderManager]
-    def get_queryset(self):
-        queryset = User.objects.filter(is_active=True, profile__role="customer").order_by("first_name", "last_name", "username")
-        search = self.request.query_params.get("search")
-        if search:
-            from django.db.models import Q
-            queryset = queryset.filter(Q(username__icontains=search) | Q(first_name__icontains=search) | Q(last_name__icontains=search) | Q(email__icontains=search))
-        return queryset
 
 class ProductListView(generics.ListAPIView):
-    serializer_class = ProductSerializer
+    serializer_class = ProductoSerializer
     permission_classes = [permissions.AllowAny]
-    def get_queryset(self):
-        queryset = Product.objects.select_related("branch", "category").filter(is_available=True, stock__gt=0, branch__is_active=True, category__is_active=True)
-        for param, field in (("branch", "branch_id"), ("category", "category_id")):
-            if self.request.query_params.get(param):
-                queryset = queryset.filter(**{field: self.request.query_params[param]})
-        if self.request.query_params.get("search"):
-            queryset = queryset.filter(name__icontains=self.request.query_params["search"])
-        return queryset
 
-class OrderListCreateView(generics.ListCreateAPIView):
-    permission_classes = [permissions.IsAuthenticated]
     def get_queryset(self):
-        user, role = self.request.user, role_of(self.request.user)
-        queryset = Order.objects.select_related("branch", "customer").prefetch_related("items")
-        if role == "admin":
-            branch_id = self.request.query_params.get("branch")
-            return queryset.filter(branch_id=branch_id) if branch_id else queryset
-        if role in {"operator", "kitchen", "courier"}:
-            branch_id = getattr(getattr(user, "profile", None), "branch_id", None)
-            return queryset.filter(branch_id=branch_id) if branch_id else queryset.none()
-        return queryset.filter(customer=user)
-    def get_serializer_class(self):
-        return OrderCreateSerializer if self.request.method == "POST" else OrderSerializer
-    def create(self, request, *args, **kwargs):
-        role = role_of(request.user)
-        if role not in {"customer", "operator", "admin"}:
-            return Response({"detail": "Este rol no puede crear pedidos."}, status=status.HTTP_403_FORBIDDEN)
-        if role == "customer" and "customer" in request.data:
-            return Response({"detail": "No puedes crear pedidos a nombre de otro usuario."}, status=status.HTTP_403_FORBIDDEN)
-        if role in {"operator", "admin"} and not request.data.get("customer"):
-            return Response({"customer": "Selecciona el cliente para este pedido."}, status=status.HTTP_400_BAD_REQUEST)
-        if role == "operator":
-            branch_id = getattr(getattr(request.user, "profile", None), "branch_id", None)
-            if not branch_id or str(branch_id) != str(request.data.get("branch")):
-                return Response({"detail": "Solo puedes registrar pedidos para tu sede asignada."}, status=status.HTTP_403_FORBIDDEN)
-        serializer = self.get_serializer(data=request.data)
+        queryset = Producto.objects.filter(activo=True)
+        sede_id = self.request.query_params.get("branch")
+        if sede_id:
+            queryset = queryset.filter(
+                inventario__sede_id=sede_id,
+                inventario__cantidad_disponible__gt=0,
+            )
+        category = self.request.query_params.get("category")
+        if category and category != "all":
+            queryset = queryset.filter(tipo_de_producto__iexact=category)
+        return queryset.distinct()
+
+
+class CustomerAddressListCreateView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        cliente = current_cliente(request.user)
+        if not cliente.direccion_residencia:
+            return Response([])
+        return Response(
+            [
+                {
+                    "id": cliente.id_cliente,
+                    "label": "Casa",
+                    "address": cliente.direccion_residencia,
+                    "reference": "",
+                    "is_default": True,
+                }
+            ]
+        )
+
+    def post(self, request):
+        serializer = CustomerAddressSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        order = serializer.save()
-        return Response(OrderSerializer(order).data, status=status.HTTP_201_CREATED)
+        cliente = current_cliente(request.user)
+        cliente.direccion_residencia = serializer.validated_data["address"]
+        cliente.save(update_fields=["direccion_residencia"])
+        return Response(
+            {
+                "id": cliente.id_cliente,
+                "label": serializer.validated_data.get("label", "Casa"),
+                "address": cliente.direccion_residencia,
+                "reference": serializer.validated_data.get("reference", ""),
+                "is_default": True,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class CustomerAddressDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def delete(self, request, _pk):
+        cliente = current_cliente(request.user)
+        cliente.direccion_residencia = ""
+        cliente.save(update_fields=["direccion_residencia"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class CustomerListView(generics.ListAPIView):
+    serializer_class = ClienteSerializer
+    permission_classes = [permissions.IsAdminUser]
+    queryset = Cliente.objects.all().order_by("nombres", "apellidos")
+
+
+class OrderListCreateView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    @transaction.atomic
+
+    def get(self, request):
+        pedidos = Pedido.objects.filter(cliente=current_cliente(request.user))
+        return Response(PedidoSerializer(pedidos, many=True).data)
+
+    @transaction.atomic
+    def post(self, request):
+        cliente = current_cliente(request.user)
+        sede = get_object_or_404(Sede, pk=request.data.get("branch"))
+        address = request.data.get("delivery_address", "").strip()
+        items = request.data.get("items", [])
+        if not address or not items:
+            return Response(
+                {"detail": "La dirección y los productos son obligatorios."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        prepared_items = []
+        for item in items:
+            producto = get_object_or_404(Producto, pk=item.get("product_id"))
+            quantity = item.get("quantity")
+            if not isinstance(quantity, int) or quantity <= 0:
+                return Response(
+                    {"detail": "La cantidad de cada producto debe ser positiva."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            inventory = (
+                producto.inventarios.filter(sede=sede).select_for_update().first()
+            )
+            if not inventory or inventory.cantidad_disponible < quantity:
+                return Response(
+                    {"detail": f"No hay existencias para {producto.nombre_producto}."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            prepared_items.append((producto, inventory, quantity))
+
+        with transaction.atomic():
+            pedido = Pedido.objects.create(
+                cliente=cliente,
+                sede=sede,
+                direccion_entrega=address,
+                notas_cliente=request.data.get("notes", ""),
+            )
+            for producto, inventory, quantity in prepared_items:
+                DetallePedidoSerializer(
+                    data={
+                        "producto": producto.pk,
+                        "cantidad": quantity,
+                        "precio_unitario_aplicado": producto.precio_venta,
+                    }
+                ).is_valid(raise_exception=True)
+                pedido.detalles.create(
+                    producto=producto,
+                    cantidad=quantity,
+                    precio_unitario_aplicado=producto.precio_venta,
+                )
+                inventory.cantidad_disponible -= quantity
+                inventory.save(update_fields=["cantidad_disponible"])
+        return Response(PedidoSerializer(pedido).data, status=status.HTTP_201_CREATED)
+
 
 class OrderStatusView(APIView):
-    permission_classes = [permissions.IsAuthenticated, IsStaffRole]
-    transitions = {"received": {"preparing", "cancelled"}, "preparing": {"ready", "cancelled"}, "ready": {"on_the_way", "delivered"}, "on_the_way": {"delivered"}, "delivered": set(), "cancelled": set()}
+    permission_classes = [permissions.IsAdminUser]
+
     def patch(self, request, pk):
-        order = get_object_or_404(Order, pk=pk)
-        role = role_of(request.user)
-        branch_id = getattr(getattr(request.user, "profile", None), "branch_id", None)
-        if role != "admin" and not request.user.is_superuser and branch_id != order.branch_id:
-            return Response({"detail": "No tienes acceso a esta sede."}, status=status.HTTP_403_FORBIDDEN)
-        new_status = request.data.get("status")
-        if new_status not in self.transitions.get(order.status, set()):
-            return Response({"detail": "Cambio de estado no permitido."}, status=status.HTTP_400_BAD_REQUEST)
-        allowed = {"operator": {"preparing", "ready", "on_the_way", "delivered", "cancelled"}, "kitchen": {"preparing", "ready", "cancelled"}, "courier": {"on_the_way", "delivered"}, "admin": set(self.transitions)}
-        if new_status not in allowed.get(role, set()):
-            return Response({"detail": "Tu rol no puede asignar ese estado."}, status=status.HTTP_403_FORBIDDEN)
-        order.status = new_status
-        order.save(update_fields=["status", "updated_at"])
-        return Response(OrderSerializer(order).data)
+        pedido = get_object_or_404(Pedido, pk=pk)
+        status_map = {
+            "received": "Pendiente",
+            "preparing": "Preparando",
+            "ready": "Preparando",
+            "on_the_way": "En Camino",
+            "delivered": "Entregado",
+            "cancelled": "Cancelado",
+        }
+        pedido.estado_pedido = status_map.get(
+            request.data.get("status"), request.data.get("status", pedido.estado_pedido)
+        )
+        pedido.save(update_fields=["estado_pedido"])
+        return Response(PedidoSerializer(pedido).data)
+
 
 class CustomerOrderCancelView(APIView):
     permission_classes = [permissions.IsAuthenticated]
-    @transaction.atomic
+
     def post(self, request, pk):
-        order = get_object_or_404(Order.objects.select_for_update().prefetch_related("items__product"), pk=pk)
-        if order.customer_id != request.user.id:
-            return Response({"detail": "No tienes permiso para cancelar este pedido."}, status=status.HTTP_403_FORBIDDEN)
-        if order.status != Order.Status.RECEIVED:
-            return Response({"detail": "Solo puedes cancelar antes de que empiece la preparación."}, status=status.HTTP_400_BAD_REQUEST)
-        for item in order.items.all():
-            product = Product.objects.select_for_update().get(pk=item.product_id)
-            product.stock += item.quantity
-            product.save(update_fields=["stock"])
-        order.status = Order.Status.CANCELLED
-        order.save(update_fields=["status", "updated_at"])
-        return Response(OrderSerializer(order).data)
+        pedido = get_object_or_404(
+            Pedido, pk=pk, cliente=current_cliente(request.user)
+        )
+        pedido.estado_pedido = "Cancelado"
+        pedido.save(update_fields=["estado_pedido"])
+        return Response(PedidoSerializer(pedido).data)

@@ -10,9 +10,7 @@ CREATE TABLE Ciudad(
     FOREIGN KEY(id_departamento)
     REFERENCES Departamentos(id_departamento)
     ON DELETE RESTRICT
-    ON UPDATE CASCADE,
-
-
+    ON UPDATE CASCADE
 );
 CREATE TABLE Cliente(
     id_cliente BIGSERIAL PRIMARY KEY,
@@ -49,7 +47,7 @@ CREATE TABLE Sedes(
     id_sede SERIAL PRIMARY KEY,
     nombre_sede VARCHAR(50) NOT NULL,
     barrio_sede VARCHAR(50) NOT NULL,
-    id_ciudad INT NOT NULL,
+    id_ciudad BIGINT NOT NULL,
     direccion VARCHAR (100) UNIQUE NOT NULL,
 
     horario_atencion_apertura TIME NOT NULL,
@@ -148,12 +146,12 @@ CREATE TABLE Repartidor(
     tipo_vehiculo VARCHAR(30) NOT NULL CHECK (tipo_vehiculo IN ('Moto', 'Bicicleta', 'Carro')),
     placa_vehiculo VARCHAR(15) NOT NULL, 
     estado_operativo VARCHAR(20) DEFAULT 'Inactivo' CHECK (estado_operativo IN ('Disponible', 'Ocupado', 'Inactivo')),
-    ultima_actualizacion_gps TIMESTAMP,
+    ultima_actualizacion_gps TIMESTAMP
 );
 CREATE TABLE Pedido(
     id_pedido SERIAL PRIMARY KEY,
     
-    id_cliente INT NOT NULL,
+    id_cliente BIGINT NOT NULL,
     id_sede INT NOT NULL,
     id_repartidor INT, -- NULL al inicio, se actualiza cuando un motorizado acepta el viaje
     

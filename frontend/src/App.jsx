@@ -1,23 +1,33 @@
 import { useEffect, useMemo, useState } from 'react'
 import { api, getToken } from './api.js'
+import RegistroCliente from './pages/RegistroCliente.jsx'
 
 const money = value => new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(Number(value || 0))
 
-function AuthPanel({ onAuthenticated }) {
-  const [register, setRegister] = useState(false)
-  const [form, setForm] = useState({ username: '', password: '', first_name: '', last_name: '', email: '', phone: '' })
+function AuthPanel({ onAuthenticated, register, setRegister }) {
+  const [form, setForm] = useState({ username: '', password: '', first_name: '', last_name: '', email: '', phone: '', phone_extension: '', tipo_documento: 'CC', numero_documento: '', date_of_birth: '', delivery_address: '', address_reference: '' })
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const update = event => setForm({ ...form, [event.target.name]: event.target.value })
   async function submit(event) {
     event.preventDefault(); setError(''); setBusy(true)
     try {
-      if (register) await api('/auth/register/', { method: 'POST', body: JSON.stringify(form) })
+      if (register) {
+        const { delivery_address, address_reference, phone_extension, username, ...accountData } = form
+        const registered = await api('/auth/register/', { method: 'POST', body: JSON.stringify(accountData) })
+        const tokens = await api('/auth/token/', { method: 'POST', body: JSON.stringify({ username: registered.username, password: form.password }) })
+        localStorage.setItem('domi_access', tokens.access); localStorage.setItem('domi_refresh', tokens.refresh)
+        await api('/addresses/', { method: 'POST', body: JSON.stringify({ label: 'Casa', address: delivery_address, reference: address_reference, is_default: true }) })
+        onAuthenticated()
+        return
+      }
       const tokens = await api('/auth/token/', { method: 'POST', body: JSON.stringify({ username: form.username, password: form.password }) })
       localStorage.setItem('domi_access', tokens.access); localStorage.setItem('domi_refresh', tokens.refresh); onAuthenticated()
     } catch (err) { setError(err.message) }
     finally { setBusy(false) }
   }
+  if (register) return <RegistroCliente form={form} update={update} error={error} busy={busy} onSubmit={submit} onBackToLogin={() => { setRegister(false); setError('') }} />
+
   return <section className="auth-card">
     <div className="eyebrow">CUENTA DOMIPEDIDOS</div><h2>{register ? 'Crea tu cuenta' : 'Qué bueno verte'}</h2>
     <p className="muted">{register ? 'Regístrate para pedir a tu sede favorita.' : 'Inicia sesión para consultar el menú y tus pedidos.'}</p>
@@ -36,6 +46,7 @@ function AuthPanel({ onAuthenticated }) {
 
 function App() {
   const [authenticated, setAuthenticated] = useState(Boolean(getToken()))
+  const [authMode, setAuthMode] = useState('login')
   const [user, setUser] = useState(null)
   const [profileOpen, setProfileOpen] = useState(false)
   const [profileForm, setProfileForm] = useState({ first_name: '', last_name: '', email: '', phone: '' })
@@ -179,8 +190,8 @@ function App() {
   return <div className="app-shell min-h-screen antialiased">
     <header className="topbar"><a className="brand" href="#"><span className="brand-mark">D</span><span>DomiPedidos<span className="brand-x">X</span></span></a><div className="top-actions">{authenticated ? <><span className="welcome">Hola, {user?.first_name || user?.username || 'cliente'}</span><button className="button button-light" onClick={() => setProfileOpen(value => !value)}>Mi perfil</button><button className="button button-light" onClick={logout}>Salir</button></> : <span className="top-note">Tu antojo, a un pedido de distancia</span>}</div></header>
     <main>
-      <section className="hero"><div className="hero-copy"><div className="eyebrow eyebrow-light">HECHO CERCA. LLEGA A TU PUERTA.</div><h1>Lo rico del día,<br /><em>sin complicarte.</em></h1><p>Explora el menú de tu sede y sigue cada paso de tu pedido.</p><div className="hero-meta"><span>✦ Preparado al momento</span><span>⌖ Cali, Colombia</span></div></div><div className="hero-visual"><div className="sun"></div><div className="food-plate"><div className="burger bun-top"></div><div className="burger lettuce"></div><div className="burger patty"></div><div className="burger cheese"></div><div className="burger bun-bottom"></div></div><div className="hero-sticker">RECIÉN<br />HECHO</div></div></section>
-      {!authenticated ? <div className="auth-wrap"><AuthPanel onAuthenticated={() => setAuthenticated(true)} /></div> : <>
+      {(authenticated || authMode === 'login') && <section className="hero"><div className="hero-copy"><div className="eyebrow eyebrow-light">HECHO CERCA. LLEGA A TU PUERTA.</div><h1>Lo rico del día,<br /><em>sin complicarte.</em></h1><p>Explora el menú de tu sede y sigue cada paso de tu pedido.</p><div className="hero-meta"><span>✦ Preparado al momento</span><span>⌖ Cali, Colombia</span></div></div><div className="hero-visual"><div className="sun"></div><div className="food-plate"><div className="burger bun-top"></div><div className="lettuce"></div><div className="burger patty"></div><div className="burger cheese"></div><div className="burger bun-bottom"></div></div><div className="hero-sticker">RECIÉN<br />HECHO</div></div></section>}
+      {!authenticated ? <div className={authMode === 'register' ? '' : 'auth-wrap'}><AuthPanel register={authMode === 'register'} setRegister={value => { setAuthMode(value ? 'register' : 'login'); }} onAuthenticated={() => setAuthenticated(true)} /></div> : <>
         {profileOpen && <section className="profile-panel"><form onSubmit={saveProfile} className="profile-form"><div><div className="eyebrow">DATOS DE TU CUENTA</div><h2>Mi perfil</h2></div><div className="profile-fields"><label>Nombre<input value={profileForm.first_name} onChange={event => setProfileForm({ ...profileForm, first_name: event.target.value })} /></label><label>Apellido<input value={profileForm.last_name} onChange={event => setProfileForm({ ...profileForm, last_name: event.target.value })} /></label><label>Correo<input type="email" value={profileForm.email} onChange={event => setProfileForm({ ...profileForm, email: event.target.value })} /></label><label>Celular<input value={profileForm.phone} onChange={event => setProfileForm({ ...profileForm, phone: event.target.value })} /></label></div><button className="button button-dark">Guardar cambios</button></form></section>}
         <div className="section-heading"><div><div className="eyebrow">PIDE EN LÍNEA</div><h2>¿Qué se te antoja?</h2></div><label className="branch-picker">Tu sede<select value={branchId} disabled={["operator", "kitchen", "courier"].includes(staffRole)} onChange={event => { setBranchId(event.target.value); setCart({}) }}>{branches.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label></div>
         <div className="content-grid"><section className="menu-area">
@@ -205,7 +216,3 @@ function App() {
   </div>
 }
 export default App
-
-
-
-
