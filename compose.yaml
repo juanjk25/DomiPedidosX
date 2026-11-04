@@ -13,3 +13,6 @@
     ports:
       - "8000:8000"
       - "5173:5173"
+    volumes:
+      - ./frontend/src:/app/frontend/src
+      - /app/froentend/node_modules
