@@ -8,6 +8,8 @@ from .models import Branch, Category, CustomerAddress, Order, Product
 from .permissions import IsOrderManager, IsStaffRole, role_of
 from .serializers import BranchSerializer, CategorySerializer, CustomerAddressSerializer, CustomerListSerializer, OrderCreateSerializer, OrderSerializer, ProductSerializer, RegisterSerializer, UserSerializer
 User = get_user_model()
+from rest_framework_simplejwt.views import TokenObtainPairView
+from .serializers import CustomTokenObtainPairSerializer
 
 class RegisterView(generics.CreateAPIView):
     queryset = User.objects.all()
@@ -149,3 +151,6 @@ class CustomerOrderCancelView(APIView):
         order.status = Order.Status.CANCELLED
         order.save(update_fields=["status", "updated_at"])
         return Response(OrderSerializer(order).data)
+    
+class CustomTokenObtainPairView(TokenObtainPairView):
+    serializer_class = CustomTokenObtainPairSerializer

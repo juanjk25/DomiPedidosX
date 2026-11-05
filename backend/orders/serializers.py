@@ -4,6 +4,7 @@ from django.db import transaction
 from rest_framework import serializers
 from .models import Branch, Category, CustomerAddress, Order, OrderItem, Product, UserProfile
 User = get_user_model()
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 class UserProfileSerializer(serializers.ModelSerializer):
     role = serializers.SerializerMethodField()
@@ -136,3 +137,31 @@ class OrderCreateSerializer(serializers.Serializer):
             product.stock -= quantity
             product.save(update_fields=["stock"])
         return order
+
+class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    @classmethod
+    def get_token(cls, user):
+        token = super().get_token(user)
+
+        token['username'] = user.username
+        
+        role = "customer" # Default
+        if user.is_superuser:
+             role = "admin"
+        elif hasattr(user, 'profile'):
+             role = user.profile.role
+             
+        token['role'] = role
+
+        return token
+        
+    def validate(self, attrs):
+        data = super().validate(attrs)
+        
+        data['user'] = {
+            "id": self.user.id,
+            "username": self.user.username,
+            "email": self.user.email,
+            "role": "admin" if self.user.is_superuser else (self.user.profile.role if hasattr(self.user, 'profile') else "customer")
+        }
+        return data
