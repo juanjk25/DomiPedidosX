@@ -10,9 +10,7 @@ CREATE TABLE Ciudad(
     FOREIGN KEY(id_departamento)
     REFERENCES Departamentos(id_departamento)
     ON DELETE RESTRICT
-    ON UPDATE CASCADE,
-
-
+    ON UPDATE CASCADE
 );
 CREATE TABLE Cliente(
     id_cliente BIGSERIAL PRIMARY KEY,
@@ -49,7 +47,7 @@ CREATE TABLE Sedes(
     id_sede SERIAL PRIMARY KEY,
     nombre_sede VARCHAR(50) NOT NULL,
     barrio_sede VARCHAR(50) NOT NULL,
-    id_ciudad INT NOT NULL,
+    id_ciudad BIGINT NOT NULL,
     direccion VARCHAR (100) UNIQUE NOT NULL,
 
     horario_atencion_apertura TIME NOT NULL,
@@ -121,15 +119,16 @@ CREATE TABLE Sede_Ingrediente(
     FOREIGN KEY(id_ingrediente) REFERENCES Ingredientes(id_ingrediente) ON DELETE CASCADE,
     CHECK(stock_maximo>=stock_minimo)
 );
-
-CREATE TABLE Producto_Ingrediente(
-    id_producto INT NOT NULL,
-    id_ingrediente INT NOT NULL,
-    cantidad_requerida NUMERIC(10,2) NOT NULL CHECK(cantidad_requerida>0),
-
-    PRIMARY KEY(id_producto, id_ingrediente),
-    FOREIGN KEY(id_producto) REFERENCES Productos(id_producto) ON DELETE CASCADE,
-    FOREIGN KEY(id_ingrediente) REFERENCES Ingredientes(id_ingrediente) ON DELETE CASCADE
+CREATE TABLE Repartidor(
+    id_repartidor SERIAL PRIMARY KEY,
+    cedula_repartidor VARCHAR(20) UNIQUE NOT NULL,
+    nombre_repartidor VARCHAR(50) NOT NULL,
+    apellido_repartidor VARCHAR(50) NOT NULL,
+    telefono_repartidor VARCHAR(20) UNIQUE NOT NULL,
+    tipo_vehiculo VARCHAR(30) NOT NULL CHECK (tipo_vehiculo IN ('Moto', 'Bicicleta', 'Carro')),
+    placa_vehiculo VARCHAR(15) NOT NULL, 
+    estado_operativo VARCHAR(20) DEFAULT 'Inactivo' CHECK (estado_operativo IN ('Disponible', 'Ocupado', 'Inactivo')),
+    ultima_actualizacion_gps TIMESTAMP
 );
 
 CREATE TABLE Pedido(
@@ -195,44 +194,3 @@ CREATE TABLE Detalle_Pedido(
     -- Un mismo producto no debería estar en dos líneas separadas en el mismo pedido
     UNIQUE(id_pedido, id_producto)
 );
--- Función
-CREATE OR REPLACE FUNCTION funcion_calcular_detalle_pedido()
-RETURNS TRIGGER AS $$
-DECLARE
-    tasa_iva NUMERIC := 0.19; -- 19% de IVA
-BEGIN
-    -- 1. Calcula el subtotal (Cantidad x Precio)
-    NEW.subtotal_linea := NEW.cantidad * NEW.precio_unitario_aplicado;
-    
-    -- 2. Calcula el IVA de esa línea
-    NEW.iva_aplicado := NEW.subtotal_linea * tasa_iva;
-    
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Trigger
-CREATE TRIGGER trigger_detalle_pedido
-BEFORE INSERT OR UPDATE ON Detalle_Pedido
-FOR EACH ROW
-EXECUTE FUNCTION funcion_calcular_detalle_pedido();
-
--- Función
-CREATE OR REPLACE FUNCTION funcion_calcular_totales_factura()
-RETURNS TRIGGER AS $$
-BEGIN
-    -- 1. Calcula el Total de la Factura (Subtotal + IVA - Descuento)
-    NEW.total_factura := NEW.subtotal + NEW.total_iva - NEW.total_descuento;
-    
-    -- 2. Calcula el Cambio Devuelto (Lo que pagó el cliente menos el total)
-    NEW.cambio_devuelto := NEW.valor_pagado - NEW.total_factura;
-    
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
--- Trigger
-CREATE TRIGGER trigger_totales_factura
-BEFORE INSERT OR UPDATE ON Factura
-FOR EACH ROW
-EXECUTE FUNCTION funcion_calcular_totales_factura();
