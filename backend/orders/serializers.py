@@ -2,25 +2,31 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.db import transaction
 from rest_framework import serializers
-
-from .models import Cliente, CredencialCliente, DetallePedido, Pedido, Producto, Sede
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from .models import Cliente, CredencialCliente, Sede, Producto, Pedido, DetallePedido
 
 User = get_user_model()
 
 
 class RegisterSerializer(serializers.Serializer):
-    email = serializers.EmailField(source="correo_cliente")
+    # Datos del usuario Django
+    email = serializers.EmailField()
     password = serializers.CharField(write_only=True, min_length=8)
-    first_name = serializers.CharField(source="nombres", max_length=50)
-    last_name = serializers.CharField(source="apellidos", max_length=50)
-    phone = serializers.CharField(
-        source="telefono_cliente", required=False, allow_blank=True
-    )
-    tipo_documento = serializers.ChoiceField(
-        choices=("CC", "CE", "NIT", "TI"), required=False, default="CC"
-    )
-    numero_documento = serializers.CharField(required=False, default="")
-    date_of_birth = serializers.DateField(source="fecha_nacimiento")
+    # Datos del cliente
+    nombres = serializers.CharField(max_length=50)
+    apellidos = serializers.CharField(max_length=50)
+    tipo_documento = serializers.ChoiceField(choices=[("CC","CC"),("CE","CE"),("NIT","NIT"),("TI","TI")])
+    numero_documento = serializers.CharField(max_length=20)
+    telefono_cliente = serializers.CharField(max_length=15, required=False, allow_blank=True)
+    extension_telefonica = serializers.CharField(max_length=10, required=False, allow_blank=True)
+    direccion_residencia = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    referencia_direccion = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    fecha_nacimiento = serializers.DateField()
+
+    def validate_email(self, value):
+        if User.objects.filter(username=value).exists():
+            raise serializers.ValidationError("Ya existe una cuenta con este correo.")
+        return value
 
     def validate_password(self, value):
         validate_password(value)
@@ -28,133 +34,73 @@ class RegisterSerializer(serializers.Serializer):
 
     @transaction.atomic
     def create(self, validated_data):
-        password = validated_data.pop("password")
-        correo = validated_data["correo_cliente"]
-        numero = validated_data.get("numero_documento") or correo.split("@")[0][:20]
-        cliente = Cliente.objects.create(
-            numero_documento=numero,
-            fecha_nacimiento=validated_data.pop("fecha_nacimiento", None),
-            **validated_data,
-        )
+        email = validated_data["email"]
+        password = validated_data["password"]
+
         user = User.objects.create_user(
-            username=correo,
-            email=correo,
+            username=email,
+            email=email,
             password=password,
-            first_name=cliente.nombres,
-            last_name=cliente.apellidos,
+            first_name=validated_data["nombres"],
+            last_name=validated_data["apellidos"],
         )
+
+        cliente = Cliente.objects.create(
+            nombres=validated_data["nombres"],
+            apellidos=validated_data["apellidos"],
+            tipo_documento=validated_data["tipo_documento"],
+            numero_documento=validated_data["numero_documento"],
+            telefono_cliente=validated_data.get("telefono_cliente", ""),
+            extension_telefonica=validated_data.get("extension_telefonica", ""),
+            correo_cliente=email,
+            direccion_residencia=validated_data.get("direccion_residencia", ""),
+            referencia_direccion=validated_data.get("referencia_direccion", ""),
+            fecha_nacimiento=validated_data["fecha_nacimiento"],
+        )
+
         CredencialCliente.objects.create(cliente=cliente, usuario=user)
-        return cliente
 
-    def to_representation(self, instance):
-        return {
-            "id": instance.id_cliente,
-            "username": instance.correo_cliente,
-            "email": instance.correo_cliente,
-            "first_name": instance.nombres,
-            "last_name": instance.apellidos,
-        }
-
-
-class ClienteSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Cliente
-        fields = [
-            "id_cliente",
-            "tipo_documento",
-            "numero_documento",
-            "nombres",
-            "apellidos",
-            "telefono_cliente",
-            "correo_cliente",
-            "direccion_residencia",
-            "fecha_nacimiento",
-        ]
+        return user
 
 
 class SedeSerializer(serializers.ModelSerializer):
-    delivery_fee = serializers.DecimalField(
-        max_digits=12, decimal_places=2, read_only=True, default=0
-    )
-
     class Meta:
         model = Sede
         fields = [
             "id_sede",
             "nombre_sede",
             "barrio_sede",
-            "ciudad",
             "direccion",
             "horario_atencion_apertura",
             "horario_atencion_cierre",
-            "delivery_fee",
         ]
 
 
-class ProductoSerializer(serializers.ModelSerializer):
-    id = serializers.IntegerField(source="id_producto", read_only=True)
-    name = serializers.CharField(source="nombre_producto", read_only=True)
-    price = serializers.DecimalField(
-        source="precio_venta", max_digits=12, decimal_places=2, read_only=True
-    )
-    branch = serializers.SerializerMethodField()
-    category = serializers.SerializerMethodField()
-    category_name = serializers.CharField(source="tipo_de_producto", read_only=True)
-    description = serializers.SerializerMethodField()
-    preparation_minutes = serializers.SerializerMethodField()
-    stock = serializers.SerializerMethodField()
+class CategoriaSerializer(serializers.Serializer):
+    """Categorías derivadas del campo tipo_de_producto de Producto."""
+    id = serializers.IntegerField()
+    nombre = serializers.CharField()
 
+
+class ProductoSerializer(serializers.ModelSerializer):
     class Meta:
         model = Producto
         fields = [
-            "id",
             "id_producto",
             "codigo_de_barras",
             "nombre_producto",
             "tipo_de_producto",
             "activo",
-            "precio_compra",
             "precio_venta",
-            "name",
-            "price",
-            "stock",
-            "branch",
-            "category",
-            "category_name",
-            "description",
-            "preparation_minutes",
         ]
-
-    def get_branch(self, obj):
-        inventory = obj.inventarios.first()
-        return inventory.sede_id if inventory else None
-
-    def get_category(self, obj):
-        return obj.tipo_de_producto
-
-    def get_description(self, obj):
-        return f"{obj.nombre_producto} preparado con ingredientes frescos."
-
-    def get_preparation_minutes(self, obj):
-        return 20
-
-    def get_stock(self, obj):
-        branch_id = self.context["request"].query_params.get("branch")
-        inventories = obj.inventarios.all()
-        if branch_id:
-            inventories = inventories.filter(sede_id=branch_id)
-        return sum(item.cantidad_disponible for item in inventories)
 
 
 class DetallePedidoSerializer(serializers.ModelSerializer):
-    product_name = serializers.CharField(source="producto.nombre_producto", read_only=True)
-
     class Meta:
         model = DetallePedido
         fields = [
             "id_linea",
             "producto",
-            "product_name",
             "cantidad",
             "precio_unitario_aplicado",
             "subtotal_linea",
@@ -163,54 +109,81 @@ class DetallePedidoSerializer(serializers.ModelSerializer):
 
 
 class PedidoSerializer(serializers.ModelSerializer):
-    items = DetallePedidoSerializer(source="detalles", many=True, read_only=True)
-    customer_name = serializers.CharField(source="cliente.nombre_completo", read_only=True)
-    branch_name = serializers.CharField(source="sede.nombre_sede", read_only=True)
-    status = serializers.CharField(source="estado_pedido", read_only=True)
-    id = serializers.IntegerField(source="id_pedido", read_only=True)
-    branch = serializers.IntegerField(source="sede_id", read_only=True)
-    status_label = serializers.CharField(source="estado_pedido", read_only=True)
-    payment_label = serializers.CharField(read_only=True, default="Efectivo")
-    subtotal = serializers.SerializerMethodField()
-    delivery_fee = serializers.DecimalField(
-        max_digits=12, decimal_places=2, read_only=True, default=0
-    )
-    total = serializers.SerializerMethodField()
-    delivery_address = serializers.CharField(source="direccion_entrega", read_only=True)
+    detalles = DetallePedidoSerializer(many=True, read_only=True)
 
     class Meta:
         model = Pedido
         fields = [
             "id_pedido",
-            "id",
-            "branch",
-            "customer_name",
-            "branch_name",
-            "delivery_address",
+            "cliente",
+            "sede",
+            "estado_pedido",
+            "direccion_entrega",
             "notas_cliente",
-            "status",
-            "status_label",
-            "payment_label",
-            "subtotal",
-            "delivery_fee",
-            "total",
-            "items",
             "fecha_hora_pedido",
             "tiempo_estimado_entrega",
+            "detalles",
         ]
+        read_only_fields = fields
 
-    def get_subtotal(self, obj):
-        return sum(
-            detail.precio_unitario_aplicado * detail.cantidad
-            for detail in obj.detalles.all()
+
+class PedidoCreateSerializer(serializers.Serializer):
+    sede = serializers.PrimaryKeyRelatedField(queryset=Sede.objects.all())
+    direccion_entrega = serializers.CharField(max_length=150)
+    notas_cliente = serializers.CharField(max_length=500, required=False, allow_blank=True)
+    items = serializers.ListField(child=serializers.DictField(), min_length=1)
+
+    def validate_items(self, items):
+        normalized = []
+        for item in items:
+            try:
+                producto_id = int(item.get("producto_id"))
+                cantidad = int(item.get("cantidad"))
+            except (TypeError, ValueError):
+                raise serializers.ValidationError("Cada item requiere producto_id y cantidad válidos.")
+            if cantidad < 1 or cantidad > 20:
+                raise serializers.ValidationError("La cantidad debe estar entre 1 y 20.")
+            normalized.append({"producto_id": producto_id, "cantidad": cantidad})
+        return normalized
+
+    @transaction.atomic
+    def create(self, validated_data):
+        items_data = validated_data.pop("items")
+        request = self.context["request"]
+        cliente = Cliente.objects.get(credencial__usuario=request.user)
+
+        pedido = Pedido.objects.create(
+            cliente=cliente,
+            sede=validated_data["sede"],
+            direccion_entrega=validated_data["direccion_entrega"],
+            notas_cliente=validated_data.get("notas_cliente", ""),
         )
 
-    def get_total(self, obj):
-        return self.get_subtotal(obj)
+        for item in items_data:
+            producto = Producto.objects.get(pk=item["producto_id"])
+            DetallePedido.objects.create(
+                pedido=pedido,
+                producto=producto,
+                cantidad=item["cantidad"],
+                precio_unitario_aplicado=producto.precio_venta,
+            )
 
+        return pedido
 
-class CustomerAddressSerializer(serializers.Serializer):
-    label = serializers.CharField(required=False, default="Casa")
-    address = serializers.CharField(max_length=150)
-    reference = serializers.CharField(required=False, allow_blank=True)
-    is_default = serializers.BooleanField(required=False, default=False)
+class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    @classmethod
+    def get_token(cls, user):
+        token = super().get_token(user)
+        token["username"] = user.username
+        token["role"] = "admin" if user.is_superuser else "cliente"
+        return token
+
+    def validate(self, attrs):
+        data = super().validate(attrs)
+        data["user"] = {
+            "id": self.user.id,
+            "username": self.user.username,
+            "email": self.user.email,
+            "role": "admin" if self.user.is_superuser else "cliente",
+        }
+        return data

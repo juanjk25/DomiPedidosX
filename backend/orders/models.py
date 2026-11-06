@@ -34,8 +34,10 @@ class Cliente(models.Model):
     nombres = models.CharField(max_length=50)
     apellidos = models.CharField(max_length=50)
     telefono_cliente = models.CharField(max_length=15, blank=True)
+    extension_telefonica = models.CharField(max_length=10, blank=True)
     correo_cliente = models.EmailField(max_length=100, unique=True)
     direccion_residencia = models.CharField(max_length=150, blank=True)
+    referencia_direccion = models.CharField(max_length=150, blank=True)
     fecha_nacimiento = models.DateField()
 
     class Meta:

@@ -38,7 +38,7 @@ const RegistroCliente = ({ form, update, error, busy, onSubmit, onBackToLogin })
           <p>Completa tus datos para empezar a pedir.</p>
         </div>
 
-        <form className="registration-form" onSubmit={handleSubmit}>
+        <form className="registration-form" onSubmit={handleSubmit} autoComplete="off">
           <div className="registration-fields-row">
             <label>Nombre *
               <input name="first_name" value={form.first_name} onChange={update} placeholder="Tu nombre" required />
@@ -49,10 +49,10 @@ const RegistroCliente = ({ form, update, error, busy, onSubmit, onBackToLogin })
           </div>
           <div className="registration-fields-row">
             <label>Teléfono *
-              <input name="phone" value={form.phone} onChange={update} placeholder="+57 300 000 0000" autoComplete="tel" required />
+              <input name="phone" type="text" inputMode="numeric" pattern="[0-9]*" value={form.phone} onChange={update} placeholder="3000000000" autoComplete="off" required />
             </label>
             <label>Extensión telefónica <span className="optional">· Opcional</span>
-              <input name="phone_extension" value={form.phone_extension} onChange={update} placeholder="Ej. 101" />
+              <input name="phone_extension" type="text" inputMode="numeric" pattern="[0-9]*" value={form.phone_extension} onChange={update} placeholder="Ej. 101" autoComplete="off" />
             </label>
           </div>
           <div className="registration-fields-row">
@@ -65,20 +65,24 @@ const RegistroCliente = ({ form, update, error, busy, onSubmit, onBackToLogin })
               </select>
             </label>
             <label>Número de documento *
-              <input name="numero_documento" value={form.numero_documento} onChange={update} placeholder="Número de documento" required />
+              <input name="numero_documento" type="text" inputMode="numeric" pattern="[0-9]*" value={form.numero_documento} onChange={update} placeholder="Número de documento" autoComplete="off" required />
             </label>
           </div>
           <label>Correo electrónico *
-            <input type="email" name="email" value={form.email} onChange={update} placeholder="tucorreo@ejemplo.com" autoComplete="email" required />
+            <input type="email" name="email" value={form.email} onChange={update} placeholder="tucorreo@ejemplo.com" autoComplete="new-email" required />
           </label>
           <div className="registration-fields-row">
             <label>Contraseña *
               <input type="password" name="password" value={form.password} onChange={update} placeholder="Crea una contraseña" autoComplete="new-password" minLength="8" required />
             </label>
-            <label>Fecha de nacimiento *
-              <input type="date" name="date_of_birth" value={form.date_of_birth} onChange={update} required />
+            <label>Confirmar contraseña *
+              <input type="password" value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)} placeholder="Repite tu contraseña" autoComplete="new-password" minLength="8" required />
             </label>
           </div>
+          <label>Fecha de nacimiento *
+            <input type="date" name="date_of_birth" value={form.date_of_birth} onChange={update} autoComplete="off" required />
+          </label>
+          <p className="field-hint">Documento, teléfono y extensión: escribe solo números.</p>
           <p className="field-hint">Mínimo 8 caracteres, una mayúscula y un número.</p>
           <div className="registration-address">
             <h3>¿Dónde te llevamos tu pizza?</h3>

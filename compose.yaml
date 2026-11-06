@@ -16,3 +16,4 @@
     volumes:
       - ./frontend/src:/app/frontend/src
       - /app/froentend/node_modules
+      - ./backend:/app/backend
