@@ -43,6 +43,8 @@ class RegisterSerializer(serializers.ModelSerializer):
         return value
 
     @transaction.atomic
+
+    @transaction.atomic
     def create(self, validated_data):
         telefono = validated_data.pop("telefono", "")
         numero_documento = validated_data.pop("numero_documento", "")
@@ -103,6 +105,7 @@ class PedidoCreateSerializer(serializers.Serializer):
     notas_cliente = serializers.CharField(max_length=500, required=False, allow_blank=True)
     items = serializers.ListField(child=serializers.DictField(), min_length=1)
 
+
     def validate_items(self, items):
         normalized = []
         for item in items:
@@ -114,6 +117,7 @@ class PedidoCreateSerializer(serializers.Serializer):
                 raise serializers.ValidationError("La cantidad por producto debe estar entre 1 y 20.")
             normalized.append({"producto_id": producto_id, "cantidad": cantidad})
         return normalized
+
 
     @transaction.atomic
     def create(self, validated_data):

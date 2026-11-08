@@ -1,5 +1,5 @@
 from rest_framework.permissions import BasePermission
-from .models import UserProfile
+from .models import CredencialCliente
 
 def role_of(user):
     if not user or not user.is_authenticated:
@@ -7,9 +7,10 @@ def role_of(user):
     if user.is_superuser:
         return "admin"
     try:
-        return user.profile.role
-    except UserProfile.DoesNotExist:
-        return None
+        user.cliente_credencial
+    except CredencialCliente.DoesNotExist:
+        return "admin" if user.is_staff else None
+    return "customer"
 
 class IsStaffRole(BasePermission):
     allowed_roles = {"operator", "kitchen", "courier", "admin"}

@@ -1,6 +1,4 @@
 from django.contrib.auth import get_user_model
-from django.db import transaction
-from django.shortcuts import get_object_or_404
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -23,9 +21,8 @@ from .serializers import (
 
 User = get_user_model()
 
-class RegisterView(generics.CreateAPIView):
-    queryset = User.objects.all()
-    serializer_class = RegisterSerializer
+
+class RegisterView(APIView):
     permission_classes = [permissions.AllowAny]
 
 class MeView(generics.RetrieveUpdateAPIView):
@@ -39,6 +36,9 @@ class SedeListView(generics.ListAPIView):
     queryset = Sede.objects.all() # Asumimos que todas las creadas están activas
     serializer_class = SedeSerializer
     permission_classes = [permissions.AllowAny]
+    serializer_class = SedeSerializer
+    queryset = Sede.objects.all()
+
 
 class ProductoListView(generics.ListAPIView):
     serializer_class = ProductoSerializer

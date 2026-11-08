@@ -7,7 +7,9 @@ export async function api(path, options = {}) {
   const response = await fetch(`${API_URL}${path}`, { ...options, headers })
   const payload = response.status === 204 ? null : await response.json().catch(() => null)
   if (!response.ok) {
-    const detail = payload?.detail || Object.values(payload || {}).flat().join(' ')
+    const detail = payload?.detail || Object.entries(payload || {})
+      .map(([field, messages]) => `${field}: ${Array.isArray(messages) ? messages.join(' ') : messages}`)
+      .join(' ')
     throw new Error(detail || 'No se pudo completar la solicitud.')
   }
   return payload
