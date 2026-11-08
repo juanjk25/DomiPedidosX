@@ -1,103 +1,281 @@
 from django.conf import settings
 from django.db import models
 
-class UserProfile(models.Model):
-    class Role(models.TextChoices):
-        CUSTOMER = "customer", "Cliente"
-        OPERATOR = "operator", "Operador de sede"
-        KITCHEN = "kitchen", "Cocina"
-        COURIER = "courier", "Repartidor"
-        ADMIN = "admin", "Administrador"
-    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="profile")
-    role = models.CharField(max_length=20, choices=Role.choices, default=Role.CUSTOMER)
-    phone = models.CharField(max_length=30, blank=True)
-    branch = models.ForeignKey("Branch", null=True, blank=True, on_delete=models.SET_NULL, related_name="staff")
-    def __str__(self):
-        return f"{self.user.username} ({self.get_role_display()})"
 
-class Branch(models.Model):
-    name = models.CharField(max_length=120)
-    address = models.CharField(max_length=240)
-    phone = models.CharField(max_length=30, blank=True)
-    delivery_fee = models.DecimalField(max_digits=10, decimal_places=2, default=5000)
-    is_active = models.BooleanField(default=True)
-    class Meta:
-        ordering = ["name"]
-    def __str__(self):
-        return self.name
+class Departamento(models.Model):
+    id_departamento = models.AutoField(primary_key=True)
+    nombre_departamento = models.CharField(max_length=50, unique=True)
 
-class CustomerAddress(models.Model):
-    customer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="saved_addresses")
-    label = models.CharField(max_length=60, default="Casa")
-    address = models.CharField(max_length=300)
-    reference = models.CharField(max_length=200, blank=True)
-    is_default = models.BooleanField(default=False)
     class Meta:
-        ordering = ["-is_default", "label", "id"]
-    def __str__(self):
-        return f"{self.label}: {self.address}"
+        db_table = "departamentos"
 
-class Category(models.Model):
-    name = models.CharField(max_length=80, unique=True)
-    description = models.CharField(max_length=240, blank=True)
-    is_active = models.BooleanField(default=True)
-    class Meta:
-        ordering = ["name"]
-        verbose_name_plural = "categories"
-    def __str__(self):
-        return self.name
 
-class Product(models.Model):
-    branch = models.ForeignKey(Branch, on_delete=models.CASCADE, related_name="products")
-    category = models.ForeignKey(Category, on_delete=models.PROTECT, related_name="products")
-    name = models.CharField(max_length=120)
-    description = models.TextField(blank=True)
-    price = models.DecimalField(max_digits=10, decimal_places=2)
-    preparation_minutes = models.PositiveSmallIntegerField(default=20)
-    stock = models.PositiveIntegerField(default=0)
-    is_available = models.BooleanField(default=True)
+class Ciudad(models.Model):
+    id_ciudad = models.BigAutoField(primary_key=True)
+    nombre_ciudad = models.CharField(max_length=50, unique=True)
+    departamento = models.ForeignKey(
+        Departamento,
+        db_column="id_departamento",
+        on_delete=models.PROTECT,
+        related_name="ciudades",
+    )
+
     class Meta:
-        ordering = ["category__name", "name"]
-    def __str__(self):
-        return f"{self.name} - {self.branch.name}"
+        db_table = "ciudad"
+
+
+class Cliente(models.Model):
+    id_cliente = models.BigAutoField(primary_key=True)
+    tipo_documento = models.CharField(
+        max_length=5,
+        choices=(("CC", "CC"), ("CE", "CE"), ("NIT", "NIT"), ("TI", "TI")),
+    )
+    numero_documento = models.CharField(max_length=20)
+    nombres = models.CharField(max_length=50)
+    apellidos = models.CharField(max_length=50)
+    telefono_cliente = models.CharField(max_length=15, blank=True)
+    extension_telefonica = models.CharField(max_length=10, blank=True)
+    correo_cliente = models.EmailField(max_length=100, unique=True)
+    direccion_residencia = models.CharField(max_length=150, blank=True)
+    referencia_direccion = models.CharField(max_length=150, blank=True)
+    fecha_nacimiento = models.DateField()
+
+    class Meta:
+        db_table = "cliente"
+        constraints = [
+            models.UniqueConstraint(
+                fields=("tipo_documento", "numero_documento"),
+                name="uq_documento_cliente",
+            )
+        ]
+
     @property
-    def can_order(self):
-        return self.is_available and self.stock > 0 and self.branch.is_active and self.category.is_active
+    def nombre_completo(self):
+        return f"{self.nombres} {self.apellidos}".strip()
 
-class Order(models.Model):
-    class Status(models.TextChoices):
-        RECEIVED = "received", "Recibido"
-        PREPARING = "preparing", "En preparación"
-        READY = "ready", "Listo para despacho"
-        ON_THE_WAY = "on_the_way", "En camino"
-        DELIVERED = "delivered", "Entregado"
-        CANCELLED = "cancelled", "Cancelado"
-    class PaymentMethod(models.TextChoices):
-        CASH = "cash", "Efectivo"
-        CARD = "card", "Tarjeta (simulada)"
-        TRANSFER = "transfer", "Transferencia (simulada)"
-    customer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="orders")
-    branch = models.ForeignKey(Branch, on_delete=models.PROTECT, related_name="orders")
-    delivery_address = models.CharField(max_length=300)
-    notes = models.CharField(max_length=500, blank=True)
-    payment_method = models.CharField(max_length=20, choices=PaymentMethod.choices)
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.RECEIVED)
-    subtotal = models.DecimalField(max_digits=10, decimal_places=2)
-    delivery_fee = models.DecimalField(max_digits=10, decimal_places=2)
-    total = models.DecimalField(max_digits=10, decimal_places=2)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+
+class CredencialCliente(models.Model):
+    cliente = models.OneToOneField(
+        Cliente, on_delete=models.CASCADE, related_name="credencial"
+    )
+    usuario = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="cliente_credencial",
+    )
+
     class Meta:
-        ordering = ["-created_at"]
-    def __str__(self):
-        return f"Pedido #{self.pk} - {self.get_status_display()}"
+        db_table = "cliente_credencial"
 
-class OrderItem(models.Model):
-    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="items")
-    product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="order_items")
-    product_name = models.CharField(max_length=120)
-    unit_price = models.DecimalField(max_digits=10, decimal_places=2)
-    quantity = models.PositiveSmallIntegerField()
-    @property
-    def line_total(self):
-        return self.unit_price * self.quantity
+
+class Sede(models.Model):
+    id_sede = models.AutoField(primary_key=True)
+    nombre_sede = models.CharField(max_length=50)
+    barrio_sede = models.CharField(max_length=50)
+    ciudad = models.ForeignKey(
+        Ciudad, db_column="id_ciudad", on_delete=models.PROTECT, related_name="sedes"
+    )
+    direccion = models.CharField(max_length=100, unique=True)
+    horario_atencion_apertura = models.TimeField()
+    horario_atencion_cierre = models.TimeField()
+
+    class Meta:
+        db_table = "sedes"
+
+
+class Producto(models.Model):
+    id_producto = models.AutoField(primary_key=True)
+    codigo_de_barras = models.CharField(max_length=30, unique=True)
+    nombre_producto = models.CharField(max_length=80)
+    tipo_de_producto = models.CharField(max_length=50)
+    activo = models.BooleanField(default=True)
+    precio_compra = models.DecimalField(max_digits=12, decimal_places=2)
+    precio_venta = models.DecimalField(max_digits=12, decimal_places=2)
+
+    class Meta:
+        db_table = "productos"
+
+
+class Ingrediente(models.Model):
+    id_ingrediente = models.AutoField(primary_key=True)
+    nombre_ingrediente = models.CharField(max_length=100)
+    descripcion_ingrediente = models.TextField(blank=True, null=True)
+    unidad_medida = models.CharField(max_length=20)
+    estado_disponibilidad = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "ingredientes"
+
+class SedeIngrediente(models.Model):
+ 
+    sede = models.ForeignKey(Sede, db_column="id_sede", on_delete=models.CASCADE, related_name="inventario_ingredientes")
+    ingrediente = models.ForeignKey(Ingrediente, db_column="id_ingrediente", on_delete=models.CASCADE)
+    cantidad_disponible = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    stock_minimo = models.DecimalField(max_digits=10, decimal_places=2, default=10)
+    stock_maximo = models.DecimalField(max_digits=10, decimal_places=2, default=1000)
+
+    class Meta:
+        db_table = "sede_ingrediente"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["sede", "ingrediente"], name="uq_sede_ingrediente"
+            )
+        ]
+
+
+class Empleado(models.Model):
+    id_empleado = models.AutoField(primary_key=True)
+    cedula_empleado = models.CharField(max_length=20, unique=True)
+    nombre_empleado = models.CharField(max_length=50)
+    apellido_empleado = models.CharField(max_length=50)
+    fecha_nacimiento = models.DateField()
+    telefono_empleado = models.CharField(max_length=15, blank=True, null=True)
+    correo_empleado = models.EmailField(max_length=100, unique=True, null=True, blank=True)
+    
+    class Meta:
+        db_table = "empleado"
+
+class Cajero(models.Model):
+    empleado = models.OneToOneField(
+        Empleado, 
+        on_delete=models.CASCADE, 
+        primary_key=True, 
+        db_column="id_empleado"
+    )
+    sede = models.ForeignKey(Sede, db_column="id_sede", on_delete=models.PROTECT, related_name="cajeros")
+
+    class Meta:
+        db_table = "cajero"
+
+class Repartidor(models.Model):
+    empleado = models.OneToOneField(
+        Empleado, 
+        on_delete=models.CASCADE, 
+        primary_key=True, 
+        db_column="id_empleado"
+    )
+    tipo_vehiculo = models.CharField(max_length=30)
+    placa_vehiculo = models.CharField(max_length=15)
+    estado_operativo = models.CharField(max_length=20, default="Inactivo")
+    ultima_actualizacion_gps = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "repartidor"
+
+class OperadorSede(models.Model):
+    empleado = models.OneToOneField(
+        Empleado, 
+        on_delete=models.CASCADE, 
+        primary_key=True, 
+        db_column="id_empleado"
+    )
+    sede = models.ForeignKey(Sede, db_column="id_sede", on_delete=models.PROTECT, related_name="operadores")
+    cargo_operativo = models.CharField(max_length=30)
+
+    class Meta:
+        db_table = "operador_sede"
+
+
+class Administrador(models.Model):
+    empleado = models.OneToOneField(
+        Empleado, 
+        on_delete=models.CASCADE, 
+        primary_key=True, 
+        db_column="id_empleado"
+    )
+    # Si el administrador general no pertenece a una sede específica, 
+    # puedes dejar este campo como null=True, blank=True.
+    sede = models.ForeignKey(
+        Sede, 
+        db_column="id_sede", 
+        on_delete=models.PROTECT, 
+        related_name="administradores",
+        null=True, 
+        blank=True
+    )
+
+    class Meta:
+        db_table = "administrador"
+
+
+
+
+
+class Pedido(models.Model):
+    id_pedido = models.AutoField(primary_key=True)
+    cliente = models.ForeignKey(
+        Cliente, db_column="id_cliente", on_delete=models.PROTECT, related_name="pedidos"
+    )
+    sede = models.ForeignKey(
+        Sede, db_column="id_sede", on_delete=models.PROTECT, related_name="pedidos"
+    )
+    
+    repartidor = models.ForeignKey(
+        Repartidor,
+        db_column="id_repartidor",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="pedidos",
+    )
+    estado_pedido = models.CharField(max_length=30, default="Pendiente")
+    direccion_entrega = models.CharField(max_length=150)
+    notas_cliente = models.TextField(blank=True)
+    fecha_hora_pedido = models.DateTimeField(auto_now_add=True)
+    tiempo_estimado_entrega = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "pedido"
+        ordering = ["-fecha_hora_pedido"]
+
+
+class DetallePedido(models.Model):
+    id_linea = models.AutoField(primary_key=True)
+    pedido = models.ForeignKey(
+        Pedido, db_column="id_pedido", on_delete=models.CASCADE, related_name="detalles"
+    )
+    producto = models.ForeignKey(
+        Producto, db_column="id_producto", on_delete=models.PROTECT
+    )
+    cantidad = models.PositiveIntegerField()
+    precio_unitario_aplicado = models.DecimalField(max_digits=12, decimal_places=2)
+    subtotal_linea = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True
+    )
+    iva_aplicado = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True
+    )
+
+    class Meta:
+        db_table = "detalle_pedido"
+        constraints = [
+            models.UniqueConstraint(
+                fields=("pedido", "producto"), name="uq_detalle_pedido_producto"
+            )
+        ]
+
+
+class Factura(models.Model):
+    id_factura = models.AutoField(primary_key=True)
+    numero_factura_oficial = models.CharField(max_length=50, unique=True)
+    pedido = models.OneToOneField(
+        Pedido, db_column="id_pedido", on_delete=models.PROTECT, related_name="factura"
+    )
+    cajero = models.ForeignKey(
+        Cajero, db_column="id_empleado", on_delete=models.PROTECT
+    )
+    fecha_emision = models.DateTimeField(auto_now_add=True)
+    forma_pago = models.CharField(max_length=20)
+    subtotal = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    total_iva = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    total_descuento = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    valor_pagado = models.DecimalField(max_digits=12, decimal_places=2)
+    total_factura = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True
+    )
+    cambio_devuelto = models.DecimalField(
+        max_digits=12, decimal_places=2, null=True, blank=True
+    )
+
+    class Meta:
+        db_table = "factura"

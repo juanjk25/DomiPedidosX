@@ -2,166 +2,201 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.db import transaction
 from rest_framework import serializers
-from .models import Branch, Category, CustomerAddress, Order, OrderItem, Product, UserProfile
-User = get_user_model()
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from .models import (
+    Sede, Cliente, CredencialCliente, Producto, 
+    Pedido, DetallePedido, Administrador, Cajero, Repartidor, OperadorSede
+)
 
-class UserProfileSerializer(serializers.ModelSerializer):
-    role = serializers.SerializerMethodField()
-    branch_name = serializers.CharField(source="branch.name", read_only=True, default="")
+User = get_user_model()
+
+class ClienteSerializer(serializers.ModelSerializer):
     class Meta:
-        model = UserProfile
-        fields = ["role", "phone", "branch", "branch_name"]
-    def get_role(self, obj):
-        return "admin" if obj.user.is_superuser else obj.role
+        model = Cliente
+        fields = ["id_cliente", "tipo_documento", "numero_documento", "nombres", "apellidos", "telefono_cliente", "direccion_residencia"]
 
 class UserSerializer(serializers.ModelSerializer):
-    profile = UserProfileSerializer(read_only=True)
-    phone = serializers.CharField(source="profile.phone", required=False, allow_blank=True, write_only=True)
-    class Meta:
-        model = User
-        fields = ["id", "username", "first_name", "last_name", "email", "is_superuser", "profile", "phone"]
-        read_only_fields = ["id", "username", "is_superuser"]
-    def update(self, instance, validated_data):
-        profile_data = validated_data.pop("profile", {})
-        for field, value in validated_data.items():
-            setattr(instance, field, value)
-        instance.save()
-        if "phone" in profile_data:
-            profile, _ = UserProfile.objects.get_or_create(user=instance)
-            profile.phone = profile_data["phone"]
-            profile.save(update_fields=["phone"])
-        return instance
+    cliente = serializers.SerializerMethodField()
 
-class CustomerListSerializer(serializers.ModelSerializer):
-    phone = serializers.CharField(source="profile.phone", read_only=True, default="")
     class Meta:
         model = User
-        fields = ["id", "username", "first_name", "last_name", "email", "phone"]
+        fields = ["id", "username", "first_name", "last_name", "email", "is_superuser", "cliente"]
+        read_only_fields = ["id", "username", "is_superuser"]
+
+    def get_cliente(self, obj):
+        if hasattr(obj, 'cliente_credencial'):
+            return ClienteSerializer(obj.cliente_credencial.cliente).data
+        return None
 
 class RegisterSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, min_length=8)
-    phone = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    telefono = serializers.CharField(write_only=True, required=False, allow_blank=True)
+    numero_documento = serializers.CharField(write_only=True)
+    
     class Meta:
         model = User
-        fields = ["id", "username", "first_name", "last_name", "email", "password", "phone"]
+        fields = ["id", "username", "first_name", "last_name", "email", "password", "telefono", "numero_documento"]
         read_only_fields = ["id"]
+
     def validate_password(self, value):
         validate_password(value)
         return value
+
+    @transaction.atomic
     def create(self, validated_data):
-        phone = validated_data.pop("phone", "")
+        telefono = validated_data.pop("telefono", "")
+        numero_documento = validated_data.pop("numero_documento", "")
+        
         user = User.objects.create_user(**validated_data)
-        profile, _ = UserProfile.objects.get_or_create(user=user)
-        profile.phone = phone
-        profile.save(update_fields=["phone"])
+        
+        # Crear el Cliente asociado
+        cliente = Cliente.objects.create(
+            tipo_documento="CC",
+            numero_documento=numero_documento,
+            nombres=user.first_name,
+            apellidos=user.last_name,
+            correo_cliente=user.email,
+            telefono_cliente=telefono,
+            fecha_nacimiento="2000-01-01" # Valor por defecto o ajustar según sea necesario
+        )
+        
+        # Enlazar Usuario y Cliente
+        CredencialCliente.objects.create(usuario=user, cliente=cliente)
+        
         return user
 
-class BranchSerializer(serializers.ModelSerializer):
+class SedeSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Branch
-        fields = ["id", "name", "address", "phone", "delivery_fee"]
+        model = Sede
+        fields = ["id_sede", "nombre_sede", "barrio_sede", "direccion", "horario_atencion_apertura", "horario_atencion_cierre"]
 
-class CustomerAddressSerializer(serializers.ModelSerializer):
+class ProductoSerializer(serializers.ModelSerializer):
     class Meta:
-        model = CustomerAddress
-        fields = ["id", "label", "address", "reference", "is_default"]
-        read_only_fields = ["id"]
+        model = Producto
+        fields = ["id_producto", "codigo_de_barras", "nombre_producto", "tipo_de_producto", "activo", "precio_venta"]
 
-class CategorySerializer(serializers.ModelSerializer):
+class DetallePedidoSerializer(serializers.ModelSerializer):
+    producto_nombre = serializers.CharField(source="producto.nombre_producto", read_only=True)
+    
     class Meta:
-        model = Category
-        fields = ["id", "name", "description"]
+        model = DetallePedido
+        fields = ["id_linea", "producto", "producto_nombre", "cantidad", "precio_unitario_aplicado", "subtotal_linea"]
 
-class ProductSerializer(serializers.ModelSerializer):
-    category_name = serializers.CharField(source="category.name", read_only=True)
-    can_order = serializers.BooleanField(read_only=True)
+class PedidoSerializer(serializers.ModelSerializer):
+    detalles = DetallePedidoSerializer(many=True, read_only=True)
+    cliente_nombre = serializers.CharField(source="cliente.nombre_completo", read_only=True)
+    sede_nombre = serializers.CharField(source="sede.nombre_sede", read_only=True)
+    
     class Meta:
-        model = Product
-        fields = ["id", "branch", "category", "category_name", "name", "description", "price", "preparation_minutes", "stock", "is_available", "can_order"]
-
-class OrderItemSerializer(serializers.ModelSerializer):
-    line_total = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
-    class Meta:
-        model = OrderItem
-        fields = ["id", "product", "product_name", "unit_price", "quantity", "line_total"]
-
-class OrderSerializer(serializers.ModelSerializer):
-    items = OrderItemSerializer(many=True, read_only=True)
-    customer_name = serializers.CharField(source="customer.get_full_name", read_only=True)
-    branch_name = serializers.CharField(source="branch.name", read_only=True)
-    status_label = serializers.CharField(source="get_status_display", read_only=True)
-    payment_label = serializers.CharField(source="get_payment_method_display", read_only=True)
-    class Meta:
-        model = Order
-        fields = ["id", "customer", "customer_name", "branch", "branch_name", "delivery_address", "notes", "payment_method", "payment_label", "status", "status_label", "subtotal", "delivery_fee", "total", "items", "created_at", "updated_at"]
+        model = Pedido
+        fields = [
+            "id_pedido", "cliente", "cliente_nombre", "sede", "sede_nombre", 
+            "repartidor", "estado_pedido", "direccion_entrega", "notas_cliente", 
+            "fecha_hora_pedido", "tiempo_estimado_entrega", "detalles"
+        ]
         read_only_fields = fields
 
-class OrderCreateSerializer(serializers.Serializer):
-    customer = serializers.PrimaryKeyRelatedField(queryset=User.objects.filter(is_active=True, profile__role="customer"), required=False)
-    branch = serializers.PrimaryKeyRelatedField(queryset=Branch.objects.filter(is_active=True))
-    delivery_address = serializers.CharField(max_length=300)
-    notes = serializers.CharField(max_length=500, required=False, allow_blank=True)
-    payment_method = serializers.ChoiceField(choices=Order.PaymentMethod.choices)
+class PedidoCreateSerializer(serializers.Serializer):
+    cliente_id = serializers.PrimaryKeyRelatedField(queryset=Cliente.objects.all(), required=False)
+    sede_id = serializers.PrimaryKeyRelatedField(queryset=Sede.objects.all())
+    direccion_entrega = serializers.CharField(max_length=150)
+    notas_cliente = serializers.CharField(max_length=500, required=False, allow_blank=True)
     items = serializers.ListField(child=serializers.DictField(), min_length=1)
+
     def validate_items(self, items):
         normalized = []
         for item in items:
             try:
-                product_id, quantity = int(item.get("product_id")), int(item.get("quantity"))
+                producto_id, cantidad = int(item.get("producto_id")), int(item.get("cantidad"))
             except (TypeError, ValueError):
-                raise serializers.ValidationError("Cada producto requiere product_id y quantity válidos.")
-            if quantity < 1 or quantity > 20:
+                raise serializers.ValidationError("Cada producto requiere producto_id y cantidad válidos.")
+            if cantidad < 1 or cantidad > 20:
                 raise serializers.ValidationError("La cantidad por producto debe estar entre 1 y 20.")
-            normalized.append({"product_id": product_id, "quantity": quantity})
+            normalized.append({"producto_id": producto_id, "cantidad": cantidad})
         return normalized
+
     @transaction.atomic
     def create(self, validated_data):
         items_data = validated_data.pop("items")
-        branch = validated_data["branch"]
-        customer = validated_data.pop("customer", self.context["request"].user)
-        products = {}
+        sede = validated_data["sede_id"]
+        
+        request_user = self.context["request"].user
+        cliente = validated_data.pop("cliente_id", None)
+        
+        if not cliente:
+            if hasattr(request_user, 'cliente_credencial'):
+                cliente = request_user.cliente_credencial.cliente
+            else:
+                raise serializers.ValidationError("El usuario actual no tiene un perfil de cliente.")
+
+        productos_a_procesar = {}
         for item in items_data:
-            product = Product.objects.select_for_update().select_related("category", "branch").filter(pk=item["product_id"], branch=branch).first()
-            if not product or not product.can_order:
-                raise serializers.ValidationError({"items": f"El producto {item['product_id']} no está disponible en esta sede."})
-            products[product.pk] = (product, products.get(product.pk, (None, 0))[1] + item["quantity"])
-        for product, quantity in products.values():
-            if quantity > product.stock:
-                raise serializers.ValidationError({"items": f"No hay existencias suficientes de {product.name}."})
-        subtotal = sum(product.price * quantity for product, quantity in products.values())
-        fee = branch.delivery_fee
-        order = Order.objects.create(customer=customer, subtotal=subtotal, delivery_fee=fee, total=subtotal + fee, **validated_data)
-        for product, quantity in products.values():
-            OrderItem.objects.create(order=order, product=product, product_name=product.name, unit_price=product.price, quantity=quantity)
-            product.stock -= quantity
-            product.save(update_fields=["stock"])
-        return order
+            producto = Producto.objects.filter(pk=item["producto_id"], activo=True).first()
+            if not producto:
+                raise serializers.ValidationError({"items": f"El producto {item['producto_id']} no existe o no está activo."})
+            productos_a_procesar[producto.pk] = (producto, item["cantidad"])
+
+        pedido = Pedido.objects.create(
+            cliente=cliente,
+            sede=sede,
+            direccion_entrega=validated_data["direccion_entrega"],
+            notas_cliente=validated_data.get("notas_cliente", "")
+        )
+
+        for producto, cantidad in productos_a_procesar.values():
+            subtotal = producto.precio_venta * cantidad
+            DetallePedido.objects.create(
+                pedido=pedido,
+                producto=producto,
+                cantidad=cantidad,
+                precio_unitario_aplicado=producto.precio_venta,
+                subtotal_linea=subtotal
+            )
+
+        return pedido
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     @classmethod
     def get_token(cls, user):
         token = super().get_token(user)
-
         token['username'] = user.username
         
-        role = "customer" # Default
+        role = "customer"
         if user.is_superuser:
-             role = "admin"
-        elif hasattr(user, 'profile'):
-             role = user.profile.role
-             
+            role = "admin"
+        else:
+            if Administrador.objects.filter(empleado__correo_empleado=user.email).exists():
+                role = "administrador"
+            elif Cajero.objects.filter(empleado__correo_empleado=user.email).exists():
+                role = "cajero"
+            elif Repartidor.objects.filter(empleado__correo_empleado=user.email).exists():
+                role = "repartidor"
+            elif OperadorSede.objects.filter(empleado__correo_empleado=user.email).exists():
+                role = "operador"
+                
         token['role'] = role
-
         return token
         
     def validate(self, attrs):
         data = super().validate(attrs)
         
+        role = "customer"
+        if self.user.is_superuser:
+            role = "admin"
+        else:
+            if Administrador.objects.filter(empleado__correo_empleado=self.user.email).exists():
+                role = "administrador"
+            elif Cajero.objects.filter(empleado__correo_empleado=self.user.email).exists():
+                role = "cajero"
+            elif Repartidor.objects.filter(empleado__correo_empleado=self.user.email).exists():
+                role = "repartidor"
+            elif OperadorSede.objects.filter(empleado__correo_empleado=self.user.email).exists():
+                role = "operador"
+
         data['user'] = {
             "id": self.user.id,
             "username": self.user.username,
             "email": self.user.email,
-            "role": "admin" if self.user.is_superuser else (self.user.profile.role if hasattr(self.user, 'profile') else "customer")
+            "role": role
         }
         return data
