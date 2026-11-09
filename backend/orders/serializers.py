@@ -3,7 +3,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.db import transaction
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from .models import Cliente, CredencialCliente, Sede, Producto, Pedido, DetallePedido
+from .models import Cliente, CredencialCliente, Sede, Producto, Pedido, DetallePedido, Categoria, CredencialEmpleado
 
 User = get_user_model()
 
@@ -76,20 +76,22 @@ class SedeSerializer(serializers.ModelSerializer):
         ]
 
 
-class CategoriaSerializer(serializers.Serializer):
-    """Categorías derivadas del campo tipo_de_producto de Producto."""
-    id = serializers.IntegerField()
-    nombre = serializers.CharField()
+class CategoriaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Categoria
+        fields = ['id_categoria', 'nombre', 'activa']
 
 
 class ProductoSerializer(serializers.ModelSerializer):
+    categoria_nombre = serializers.CharField(source='categoria.nombre', read_only=True)
+    
     class Meta:
         model = Producto
         fields = [
             "id_producto",
             "codigo_de_barras",
             "nombre_producto",
-            "tipo_de_producto",
+            "categoria_nombre", # Reemplaza tipo_de_producto
             "activo",
             "precio_venta",
         ]
@@ -174,16 +176,36 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     @classmethod
     def get_token(cls, user):
         token = super().get_token(user)
-        token["username"] = user.username
-        token["role"] = "admin" if user.is_superuser else "cliente"
+        # Inyectar rol dentro del payload del Token JWT
+        role = "admin" if user.is_superuser else "cliente"
+        try:
+            if hasattr(user, 'empleado_credencial'):
+                cargo = user.empleado_credencial.empleado.cargo.strip().lower()
+                if cargo == "operador de sede":
+                    role = "operator"
+        except Exception:
+            pass
+        token['role'] = role
         return token
 
     def validate(self, attrs):
         data = super().validate(attrs)
+        user = self.user
+        role = "admin" if user.is_superuser else "cliente"
+        
+        try:
+            if hasattr(user, 'empleado_credencial'):
+                cargo = user.empleado_credencial.empleado.cargo.strip().lower()
+                if cargo == "operador de sede":
+                    role = "operator"
+        except Exception:
+            pass
+
+        # Inyectar el objeto usuario en la respuesta JSON
         data["user"] = {
-            "id": self.user.id,
-            "username": self.user.username,
-            "email": self.user.email,
-            "role": "admin" if self.user.is_superuser else "cliente",
+            "id": user.id,
+            "username": user.username,
+            "email": user.email,
+            "role": role,
         }
         return data

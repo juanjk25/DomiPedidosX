@@ -11,6 +11,8 @@ from .views import (
     ProductListView,
     RegisterView,
     CustomTokenObtainPairView,
+    OperatorCategoryListView,
+    OperatorCategoryDetailView
 )
 
 urlpatterns = [
@@ -25,4 +27,6 @@ urlpatterns = [
     path("orders/", OrderListCreateView.as_view(), name="orders"),
     path("orders/<int:pk>/cancel/", CustomerOrderCancelView.as_view(), name="order-cancel"),
     path("orders/<int:pk>/status/", OrderStatusView.as_view(), name="order-status"),
+    path("operator/categories/", OperatorCategoryListView.as_view(), name="operator-categories"),
+    path("operator/categories/<int:pk>/", OperatorCategoryDetailView.as_view(), name="operator-category-detail"),
 ]
