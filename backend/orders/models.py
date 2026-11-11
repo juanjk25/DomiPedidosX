@@ -38,6 +38,18 @@ class Cliente(models.Model):
     correo_cliente = models.EmailField(max_length=100, unique=True)
     direccion_residencia = models.CharField(max_length=150, blank=True)
     referencia_direccion = models.CharField(max_length=150, blank=True)
+    latitud = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+    )
+    longitud = models.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        null=True,
+        blank=True,
+    )
     fecha_nacimiento = models.DateField()
 
     class Meta:
