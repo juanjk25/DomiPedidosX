@@ -4,6 +4,7 @@ from django.db import transaction
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from .models import Cliente, CredencialCliente, Sede, Producto, Pedido, DetallePedido
+from .permissions import role_of, branch_of
 
 User = get_user_model()
 
@@ -130,26 +131,6 @@ class SedeSerializer(serializers.ModelSerializer):
         ]
 
 
-class CategoriaSerializer(serializers.Serializer):
-    """Categorías derivadas del campo tipo_de_producto de Producto."""
-
-    id = serializers.IntegerField()
-    nombre = serializers.CharField()
-
-
-class ProductoSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Producto
-        fields = [
-            "id_producto",
-            "codigo_de_barras",
-            "nombre_producto",
-            "tipo_de_producto",
-            "activo",
-            "precio_venta",
-        ]
-
-
 class DetallePedidoSerializer(serializers.ModelSerializer):
     class Meta:
         model = DetallePedido
@@ -223,7 +204,20 @@ class PedidoCreateSerializer(serializers.Serializer):
     def create(self, validated_data):
         items_data = validated_data.pop("items")
         request = self.context["request"]
-        cliente = Cliente.objects.get(credencial__usuario=request.user)
+        try:
+            cliente = Cliente.objects.get(credencial__usuario=request.user)
+        except Cliente.DoesNotExist:
+            raise serializers.ValidationError({"detail": "Esta cuenta no tiene perfil de cliente."})
+        from .catalog_views import in_branch, public_products
+        product_ids = [item["producto_id"] for item in items_data]
+        if len(product_ids) != len(set(product_ids)):
+            raise serializers.ValidationError({"items": "Agrupa las cantidades de cada producto en una sola línea."})
+        # Bloquea las filas mientras se confirma el pedido para validar la publicación.
+        available = in_branch(public_products(), validated_data["sede"].pk).filter(pk__in=product_ids)
+        available_ids = list(available.values_list("pk", flat=True))
+        products = {p.pk: p for p in Producto.objects.select_for_update().filter(pk__in=available_ids)}
+        if len(products) != len(product_ids) or any(not p.activo for p in products.values()):
+            raise serializers.ValidationError({"items": "Un producto ya no está disponible en esta sede. Actualiza el menú."})
 
         pedido = Pedido.objects.create(
             cliente=cliente,
@@ -233,7 +227,7 @@ class PedidoCreateSerializer(serializers.Serializer):
         )
 
         for item in items_data:
-            producto = Producto.objects.get(pk=item["producto_id"])
+            producto = products[item["producto_id"]]
             DetallePedido.objects.create(
                 pedido=pedido,
                 producto=producto,
@@ -261,7 +255,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     def get_token(cls, user):
         token = super().get_token(user)
         token["username"] = user.username
-        token["role"] = "admin" if user.is_superuser else "cliente"
+        token["role"] = role_of(user)
         return token
 
     def validate(self, attrs):
@@ -270,6 +264,8 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             "id": self.user.id,
             "username": self.user.username,
             "email": self.user.email,
-            "role": "admin" if self.user.is_superuser else "cliente",
+            "role": role_of(self.user),
+            "sede": branch_of(self.user),
+            "can_manage_menu": role_of(self.user) in {"operator", "admin"},
         }
         return data

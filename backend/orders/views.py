@@ -12,15 +12,14 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
-from .models import Cliente, Sede, Producto, Pedido
+from .models import Cliente, Sede, Pedido
+from .permissions import role_of, branch_of, IsAdministrator, IsOrderManager
 from .serializers import (
     RegisterSerializer,
     PasswordResetRequestSerializer,
     PasswordResetConfirmSerializer,
     TeamMemberStatusSerializer,
     SedeSerializer,
-    CategoriaSerializer,
-    ProductoSerializer,
     PedidoSerializer,
     PedidoCreateSerializer,
     CustomTokenObtainPairSerializer,
@@ -31,6 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 class RegisterView(APIView):
+    authentication_classes = []
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
@@ -52,6 +52,7 @@ class RegisterView(APIView):
 
 
 class PasswordResetRequestView(APIView):
+    authentication_classes = []
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
@@ -103,6 +104,7 @@ class PasswordResetRequestView(APIView):
 
 
 class PasswordResetConfirmView(APIView):
+    authentication_classes = []
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
@@ -157,55 +159,27 @@ class MeView(APIView):
 
     def get(self, request):
         user = request.user
+        data = {
+            "id": user.id, "email": user.email, "username": user.username,
+            "role": role_of(user), "sede": branch_of(user),
+            "can_manage_menu": role_of(user) in {"operator", "admin"},
+        }
         try:
             cliente = Cliente.objects.get(credencial__usuario=user)
-            return Response({
-                "id": user.id,
-                "email": user.email,
-                "nombres": cliente.nombres,
-                "apellidos": cliente.apellidos,
+            data.update({
+                "nombres": cliente.nombres, "apellidos": cliente.apellidos,
                 "telefono": cliente.telefono_cliente,
+                "direccion_residencia": cliente.direccion_residencia,
             })
         except Cliente.DoesNotExist:
-            return Response({
-                "id": user.id,
-                "email": user.email,
-                "role": "admin",
-            })
+            pass
+        return Response(data)
 
 
 class BranchListView(generics.ListAPIView):
     permission_classes = [permissions.AllowAny]
     serializer_class = SedeSerializer
     queryset = Sede.objects.all()
-
-
-class CategoryListView(APIView):
-    permission_classes = [permissions.AllowAny]
-
-    def get(self, request):
-        categorias = (
-            Producto.objects
-            .values_list("tipo_de_producto", flat=True)
-            .distinct()
-        )
-        data = [
-            {"id": index + 1, "nombre": nombre}
-            for index, nombre in enumerate(categorias)
-        ]
-        return Response(data)
-
-
-class ProductListView(generics.ListAPIView):
-    permission_classes = [permissions.AllowAny]
-    serializer_class = ProductoSerializer
-
-    def get_queryset(self):
-        qs = Producto.objects.filter(activo=True)
-        categoria = self.request.query_params.get("categoria")
-        if categoria:
-            qs = qs.filter(tipo_de_producto=categoria)
-        return qs
 
 
 class OrderListCreateView(APIView):
@@ -272,7 +246,7 @@ class OrderStatusView(APIView):
 
 
 class CustomerListView(APIView):
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [IsOrderManager]
 
     def get(self, request):
         clientes = Cliente.objects.select_related("credencial__usuario").all()
@@ -290,7 +264,7 @@ class CustomerListView(APIView):
 
 
 class TeamMemberStatusView(APIView):
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [IsAdministrator]
 
     def patch(self, request, pk):
         serializer = TeamMemberStatusSerializer(data=request.data)
@@ -328,4 +302,5 @@ class TeamMemberStatusView(APIView):
 
 
 class CustomTokenObtainPairView(TokenObtainPairView):
+    authentication_classes = []
     serializer_class = CustomTokenObtainPairSerializer

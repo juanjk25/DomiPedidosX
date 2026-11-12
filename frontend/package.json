@@ -3,7 +3,28 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "scripts": { "dev": "vite", "build": "vite build", "preview": "vite preview" },
-  "dependencies": { "react": "19.3.0", "react-dom": "19.3.0" },
-  "devDependencies": { "@tailwindcss/vite": "4.3.3", "@vitejs/plugin-react": "6.1.2", "tailwindcss": "4.3.3", "vite": "8.3.4" }
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "node --test tests/unit/*.test.js",
+    "test:e2e": "playwright test",
+    "test:components": "vitest run --config vitest.config.js"
+  },
+  "dependencies": {
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.0",
+    "@tailwindcss/vite": "4.3.3",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.10",
+    "@vitejs/plugin-react": "6.1.2",
+    "jsdom": "^31.0.0",
+    "tailwindcss": "4.3.3",
+    "vite": "8.3.4",
+    "vitest": "^5.1.0"
+  }
 }

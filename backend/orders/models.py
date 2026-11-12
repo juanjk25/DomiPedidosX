@@ -95,6 +95,37 @@ class Sede(models.Model):
         db_table = "sedes"
 
 
+class Categoria(models.Model):
+    nombre = models.CharField(max_length=50)
+    descripcion = models.CharField(max_length=500, blank=True)
+    # NULL conserva categorías antiguas aún pendientes de asignación.
+    sede = models.ForeignKey(Sede, on_delete=models.PROTECT, null=True, blank=True)
+    activo = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "categorias"
+        ordering = ["nombre"]
+        constraints = [models.UniqueConstraint(fields=("sede", "nombre"), name="uq_categoria_sede_nombre")]
+
+    def __str__(self):
+        return self.nombre
+
+
+class PerfilPersonal(models.Model):
+    """Asignación mínima para integrar HU-A9 con la gestión de menú."""
+
+    usuario = models.OneToOneField(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="perfil_personal"
+    )
+    rol = models.CharField(max_length=20, choices=[
+        ("operator", "Operador"), ("kitchen", "Cocina"), ("courier", "Repartidor")
+    ])
+    sede = models.ForeignKey(Sede, on_delete=models.PROTECT)
+
+    class Meta:
+        db_table = "perfil_personal"
+
+
 class Producto(models.Model):
     id_producto = models.AutoField(primary_key=True)
     codigo_de_barras = models.CharField(max_length=30, unique=True)
@@ -103,6 +134,14 @@ class Producto(models.Model):
     activo = models.BooleanField(default=True)
     precio_compra = models.DecimalField(max_digits=12, decimal_places=2)
     precio_venta = models.DecimalField(max_digits=12, decimal_places=2)
+    categoria = models.ForeignKey(
+        Categoria, on_delete=models.PROTECT, null=True, blank=True, related_name="productos"
+    )
+    sede = models.ForeignKey(
+        Sede, on_delete=models.PROTECT, null=True, blank=True, related_name="productos"
+    )
+    imagen_url = models.URLField(max_length=500, blank=True)
+    tiempo_preparacion = models.PositiveSmallIntegerField(null=True, blank=True)
 
     class Meta:
         db_table = "productos"
