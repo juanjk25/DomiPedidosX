@@ -94,6 +94,22 @@ class Sede(models.Model):
     class Meta:
         db_table = "sedes"
 
+    def esta_en_horario(self, hora_consulta=None):
+        """
+        Determina si la sede está abierta en una hora específica o en la hora actual.
+        Útil para validaciones de disponibilidad al recibir pedidos (HU-E8).
+        """
+        from django.utils import timezone
+        if hora_consulta is None:
+            hora_consulta = timezone.localtime().time()
+
+        if self.horario_atencion_apertura <= self.horario_atencion_cierre:
+            return self.horario_atencion_apertura <= hora_consulta <= self.horario_atencion_cierre
+        return (
+            hora_consulta >= self.horario_atencion_apertura
+            or hora_consulta <= self.horario_atencion_cierre
+        )
+
 
 class Producto(models.Model):
     id_producto = models.AutoField(primary_key=True)

@@ -130,6 +130,45 @@ class SedeSerializer(serializers.ModelSerializer):
         ]
 
 
+class SedeHorarioSerializer(serializers.ModelSerializer):
+    """Serializer para consultar y actualizar el horario de atención de una sede (HU-E8)."""
+
+    esta_abierta = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Sede
+        fields = [
+            "id_sede",
+            "nombre_sede",
+            "horario_atencion_apertura",
+            "horario_atencion_cierre",
+            "esta_abierta",
+        ]
+        read_only_fields = ["id_sede", "nombre_sede", "esta_abierta"]
+
+    def get_esta_abierta(self, obj):
+        return obj.esta_en_horario()
+
+    def validate(self, data):
+        """Valida que la hora de cierre sea posterior a la de apertura."""
+        apertura = data.get(
+            "horario_atencion_apertura",
+            getattr(self.instance, "horario_atencion_apertura", None),
+        )
+        cierre = data.get(
+            "horario_atencion_cierre",
+            getattr(self.instance, "horario_atencion_cierre", None),
+        )
+
+        if apertura and cierre and apertura >= cierre:
+            raise serializers.ValidationError({
+                "horario_atencion_cierre": (
+                    "La hora de cierre debe ser posterior a la hora de apertura."
+                )
+            })
+        return data
+
+
 class CategoriaSerializer(serializers.Serializer):
     """Categorías derivadas del campo tipo_de_producto de Producto."""
 

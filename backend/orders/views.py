@@ -13,12 +13,14 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
 from .models import Cliente, Sede, Producto, Pedido
+from .permissions import IsOrderManager
 from .serializers import (
     RegisterSerializer,
     PasswordResetRequestSerializer,
     PasswordResetConfirmSerializer,
     TeamMemberStatusSerializer,
     SedeSerializer,
+    SedeHorarioSerializer,
     CategoriaSerializer,
     ProductoSerializer,
     PedidoSerializer,
@@ -178,6 +180,21 @@ class BranchListView(generics.ListAPIView):
     permission_classes = [permissions.AllowAny]
     serializer_class = SedeSerializer
     queryset = Sede.objects.all()
+
+
+class SedeHorarioView(generics.RetrieveUpdateAPIView):
+    """
+    Vista para consultar y actualizar el horario de atención de una sede (HU-E8).
+    - GET: Consulta el horario de la sede (acceso público).
+    - PUT / PATCH: Modifica el horario de atención (requiere ser operador o administrador).
+    """
+    queryset = Sede.objects.all()
+    serializer_class = SedeHorarioSerializer
+
+    def get_permissions(self):
+        if self.request.method in permissions.SAFE_METHODS:
+            return [permissions.AllowAny()]
+        return [permissions.IsAuthenticated(), IsOrderManager()]
 
 
 class CategoryListView(APIView):
