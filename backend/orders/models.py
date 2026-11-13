@@ -111,11 +111,19 @@ class Sede(models.Model):
         )
 
 
+class Categoria(models.Model):
+    id_categoria = models.AutoField(primary_key=True)
+    nombre = models.CharField(max_length=50, unique=True)
+    activa = models.BooleanField(default=True) # El estado es global
+
+    class Meta:
+        db_table = "categorias"
+
 class Producto(models.Model):
     id_producto = models.AutoField(primary_key=True)
     codigo_de_barras = models.CharField(max_length=30, unique=True)
     nombre_producto = models.CharField(max_length=80)
-    tipo_de_producto = models.CharField(max_length=50)
+    categoria = models.ForeignKey(Categoria, db_column="id_categoria", on_delete=models.PROTECT, null=True)    
     activo = models.BooleanField(default=True)
     precio_compra = models.DecimalField(max_digits=12, decimal_places=2)
     precio_venta = models.DecimalField(max_digits=12, decimal_places=2)
@@ -279,3 +287,43 @@ class Factura(models.Model):
 
     class Meta:
         db_table = "factura"
+
+
+class PerfilTrabajador(models.Model):
+    """
+    Perfil laboral asociado a una cuenta de usuario del sistema (HU-A9).
+    Permite al administrador asignar y persistir el rol y la sede del trabajador.
+    """
+
+    class Rol(models.TextChoices):
+        OPERADOR = "operador_sede", "Operador de sede"
+        COCINA = "cocina", "Cocina"
+        REPARTIDOR = "repartidor", "Repartidor"
+        ADMINISTRADOR = "administrador", "Administrador"
+
+    usuario = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="perfil_trabajador",
+    )
+    rol = models.CharField(max_length=20, choices=Rol.choices)
+    sede = models.ForeignKey(
+        Sede,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="trabajadores",
+    )
+    telefono = models.CharField(max_length=20, blank=True)
+
+    class Meta:
+        db_table = "perfil_trabajador"
+
+    def __str__(self):
+        return f"{self.usuario.username} ({self.get_rol_display()})"
+class CredencialEmpleado(models.Model):
+    empleado = models.OneToOneField(Empleado, on_delete=models.CASCADE, related_name="credencial")
+    usuario = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="empleado_credencial")
+
+    class Meta:
+        db_table = "empleado_credencial"
