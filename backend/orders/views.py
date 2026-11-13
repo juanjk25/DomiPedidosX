@@ -1,4 +1,13 @@
+import logging
+
+from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.contrib.auth.password_validation import validate_password
+from django.contrib.auth.tokens import default_token_generator
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.mail import send_mail
+from django.utils.encoding import force_bytes, force_str
+from django.utils.http import urlsafe_base64_decode, urlsafe_base64_encode
 from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -6,6 +15,9 @@ from rest_framework_simplejwt.views import TokenObtainPairView
 from .models import Cliente, Sede, Producto, Pedido, Categoria
 from .serializers import (
     RegisterSerializer,
+    PasswordResetRequestSerializer,
+    PasswordResetConfirmSerializer,
+    TeamMemberStatusSerializer,
     SedeSerializer,
     CategoriaSerializer,
     ProductoSerializer,
@@ -16,6 +28,7 @@ from .serializers import (
 from .permissions import IsStaffRole
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 
 class RegisterView(APIView):
@@ -26,10 +39,119 @@ class RegisterView(APIView):
         if serializer.is_valid():
             user = serializer.save()
             return Response(
-                {"message": "Cuenta creada exitosamente.", "username": user.username},
+                {
+                    "message": "Cuenta creada exitosamente.",
+                    "id": user.id,
+                    "username": user.username,
+                    "email": user.email,
+                    "nombres": user.first_name,
+                    "apellidos": user.last_name,
+                },
                 status=status.HTTP_201_CREATED,
             )
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class PasswordResetRequestView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        serializer = PasswordResetRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data["email"].strip()
+
+        # La misma respuesta evita revelar si el correo está registrado.
+        users = User.objects.filter(email__iexact=email, is_active=True)
+
+        for user in users:
+            if not user.has_usable_password():
+                continue
+
+            uid = urlsafe_base64_encode(force_bytes(user.pk))
+            token = default_token_generator.make_token(user)
+            reset_url = (
+                f"{settings.FRONTEND_URL.rstrip('/')}/restablecer-contrasena"
+                f"?uid={uid}&token={token}"
+            )
+
+            try:
+                send_mail(
+                    subject="Recupera tu contraseña de DomiPedidosX",
+                    message=(
+                        "Recibimos una solicitud para cambiar la contraseña de tu cuenta.\n\n"
+                        f"Abre este enlace para elegir una nueva contraseña:\n{reset_url}\n\n"
+                        "El enlace vence en una hora. Si no solicitaste el cambio, "
+                        "ignora este correo."
+                    ),
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[user.email],
+                    fail_silently=False,
+                )
+            except Exception:
+                logger.exception(
+                    "No se pudo enviar un correo de recuperación de contraseña."
+                )
+
+        return Response(
+            {
+                "message": (
+                    "Si existe una cuenta con ese correo, "
+                    "enviaremos un enlace de recuperación."
+                )
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class PasswordResetConfirmView(APIView):
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request):
+        serializer = PasswordResetConfirmSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        uid = serializer.validated_data["uid"]
+        token = serializer.validated_data["token"]
+
+        try:
+            user_id = force_str(urlsafe_base64_decode(uid))
+            user = User.objects.get(pk=user_id, is_active=True)
+        except (
+            TypeError,
+            ValueError,
+            OverflowError,
+            UnicodeDecodeError,
+            User.DoesNotExist,
+        ):
+            return Response(
+                {"detail": "El enlace de recuperación no es válido o ya venció."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not default_token_generator.check_token(user, token):
+            return Response(
+                {"detail": "El enlace de recuperación no es válido o ya venció."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        new_password = serializer.validated_data["new_password"]
+
+        try:
+            validate_password(new_password, user=user)
+        except DjangoValidationError as error:
+            return Response(
+                {"new_password": error.messages},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user.set_password(new_password)
+        user.save(update_fields=["password"])
+
+        return Response(
+            {"message": "La contraseña se actualizó correctamente."},
+            status=status.HTTP_200_OK,
+        )
+
 
 class MeView(APIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -90,7 +212,10 @@ class OrderListCreateView(APIView):
         return Response(serializer.data)
 
     def post(self, request):
-        serializer = PedidoCreateSerializer(data=request.data, context={"request": request})
+        serializer = PedidoCreateSerializer(
+            data=request.data,
+            context={"request": request},
+        )
         if serializer.is_valid():
             pedido = serializer.save()
             return Response(
@@ -108,13 +233,17 @@ class CustomerOrderCancelView(APIView):
             cliente = Cliente.objects.get(credencial__usuario=request.user)
             pedido = Pedido.objects.get(pk=pk, cliente=cliente)
         except (Cliente.DoesNotExist, Pedido.DoesNotExist):
-            return Response({"error": "Pedido no encontrado."}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": "Pedido no encontrado."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
 
         if pedido.estado_pedido != "Pendiente":
             return Response(
                 {"error": "Solo se pueden cancelar pedidos en estado Pendiente."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
         pedido.estado_pedido = "Cancelado"
         pedido.save(update_fields=["estado_pedido"])
         return Response({"message": "Pedido cancelado."})
@@ -128,7 +257,11 @@ class OrderStatusView(APIView):
             cliente = Cliente.objects.get(credencial__usuario=request.user)
             pedido = Pedido.objects.get(pk=pk, cliente=cliente)
         except (Cliente.DoesNotExist, Pedido.DoesNotExist):
-            return Response({"error": "Pedido no encontrado."}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": "Pedido no encontrado."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
         return Response({"estado": pedido.estado_pedido})
 
 
@@ -148,6 +281,44 @@ class CustomerListView(APIView):
             for c in clientes
         ]
         return Response(data)
+
+
+class TeamMemberStatusView(APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def patch(self, request, pk):
+        serializer = TeamMemberStatusSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        try:
+            member = User.objects.get(pk=pk, is_staff=True)
+        except User.DoesNotExist:
+            return Response(
+                {"detail": "No se encontró la cuenta del integrante."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        is_active = serializer.validated_data["is_active"]
+
+        if member.pk == request.user.pk and not is_active:
+            return Response(
+                {
+                    "detail": (
+                        "No puedes desactivar la cuenta con la que tienes esta sesión."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        member.is_active = is_active
+        member.save(update_fields=["is_active"])
+
+        return Response({
+            "id": member.id,
+            "username": member.username,
+            "email": member.email,
+            "is_active": member.is_active,
+        })
 
 
 class CustomTokenObtainPairView(TokenObtainPairView):

@@ -10,23 +10,72 @@ User = get_user_model()
 
 class RegisterSerializer(serializers.Serializer):
     # Datos del usuario Django
-    email = serializers.EmailField()
+    email = serializers.EmailField(max_length=100)
     password = serializers.CharField(write_only=True, min_length=8)
+
     # Datos del cliente
     nombres = serializers.CharField(max_length=50)
     apellidos = serializers.CharField(max_length=50)
-    tipo_documento = serializers.ChoiceField(choices=[("CC","CC"),("CE","CE"),("NIT","NIT"),("TI","TI")])
+    tipo_documento = serializers.ChoiceField(
+        choices=[("CC", "CC"), ("CE", "CE"), ("NIT", "NIT"), ("TI", "TI")]
+    )
     numero_documento = serializers.CharField(max_length=20)
-    telefono_cliente = serializers.CharField(max_length=15, required=False, allow_blank=True)
-    extension_telefonica = serializers.CharField(max_length=10, required=False, allow_blank=True)
-    direccion_residencia = serializers.CharField(max_length=150, required=False, allow_blank=True)
-    referencia_direccion = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    telefono_cliente = serializers.CharField(
+        max_length=15, required=False, allow_blank=True
+    )
+    extension_telefonica = serializers.CharField(
+        max_length=10, required=False, allow_blank=True
+    )
+    direccion_residencia = serializers.CharField(
+        max_length=150, required=False, allow_blank=True
+    )
+    referencia_direccion = serializers.CharField(
+        max_length=150, required=False, allow_blank=True
+    )
+    latitud = serializers.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        min_value=-90,
+        max_value=90,
+        required=False,
+        allow_null=True,
+    )
+    longitud = serializers.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        min_value=-180,
+        max_value=180,
+        required=False,
+        allow_null=True,
+    )
     fecha_nacimiento = serializers.DateField()
 
     def validate_email(self, value):
-        if User.objects.filter(username=value).exists():
-            raise serializers.ValidationError("Ya existe una cuenta con este correo.")
+        value = value.strip().lower()
+
+        correo_en_uso = (
+            User.objects.filter(username__iexact=value).exists()
+            or User.objects.filter(email__iexact=value).exists()
+            or Cliente.objects.filter(correo_cliente__iexact=value).exists()
+        )
+
+        if correo_en_uso:
+            raise serializers.ValidationError(
+                "Ya existe una cuenta con este correo."
+            )
+
         return value
+
+    def validate(self, attrs):
+        tiene_latitud = attrs.get("latitud") is not None
+        tiene_longitud = attrs.get("longitud") is not None
+
+        if tiene_latitud != tiene_longitud:
+            raise serializers.ValidationError(
+                {"latitud": "Envía latitud y longitud juntas."}
+            )
+
+        return attrs
 
     def validate_password(self, value):
         validate_password(value)
@@ -55,10 +104,15 @@ class RegisterSerializer(serializers.Serializer):
             correo_cliente=email,
             direccion_residencia=validated_data.get("direccion_residencia", ""),
             referencia_direccion=validated_data.get("referencia_direccion", ""),
+            latitud=validated_data.get("latitud"),
+            longitud=validated_data.get("longitud"),
             fecha_nacimiento=validated_data["fecha_nacimiento"],
         )
 
-        CredencialCliente.objects.create(cliente=cliente, usuario=user)
+        CredencialCliente.objects.create(
+            cliente=cliente,
+            usuario=user,
+        )
 
         return user
 
@@ -132,20 +186,38 @@ class PedidoSerializer(serializers.ModelSerializer):
 class PedidoCreateSerializer(serializers.Serializer):
     sede = serializers.PrimaryKeyRelatedField(queryset=Sede.objects.all())
     direccion_entrega = serializers.CharField(max_length=150)
-    notas_cliente = serializers.CharField(max_length=500, required=False, allow_blank=True)
-    items = serializers.ListField(child=serializers.DictField(), min_length=1)
+    notas_cliente = serializers.CharField(
+        max_length=500, required=False, allow_blank=True
+    )
+    items = serializers.ListField(
+        child=serializers.DictField(),
+        min_length=1,
+    )
 
     def validate_items(self, items):
         normalized = []
+
         for item in items:
             try:
                 producto_id = int(item.get("producto_id"))
                 cantidad = int(item.get("cantidad"))
             except (TypeError, ValueError):
-                raise serializers.ValidationError("Cada item requiere producto_id y cantidad válidos.")
+                raise serializers.ValidationError(
+                    "Cada item requiere producto_id y cantidad válidos."
+                )
+
             if cantidad < 1 or cantidad > 20:
-                raise serializers.ValidationError("La cantidad debe estar entre 1 y 20.")
-            normalized.append({"producto_id": producto_id, "cantidad": cantidad})
+                raise serializers.ValidationError(
+                    "La cantidad debe estar entre 1 y 20."
+                )
+
+            normalized.append(
+                {
+                    "producto_id": producto_id,
+                    "cantidad": cantidad,
+                }
+            )
+
         return normalized
 
     @transaction.atomic
@@ -171,6 +243,19 @@ class PedidoCreateSerializer(serializers.Serializer):
             )
 
         return pedido
+
+
+class PasswordResetRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField(max_length=100)
+
+
+class PasswordResetConfirmSerializer(serializers.Serializer):
+    uid = serializers.CharField()
+    token = serializers.CharField()
+    new_password = serializers.CharField(write_only=True, min_length=8)
+
+class TeamMemberStatusSerializer(serializers.Serializer):
+    is_active = serializers.BooleanField()
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     @classmethod
