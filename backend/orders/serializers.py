@@ -3,7 +3,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.db import transaction
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from .models import Cliente, CredencialCliente, Sede, Producto, Pedido, DetallePedido
+from .models import Cliente, CredencialCliente, Sede, Producto, Pedido, DetallePedido, PerfilTrabajador
 
 User = get_user_model()
 
@@ -255,6 +255,106 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
 
 class TeamMemberStatusSerializer(serializers.Serializer):
     is_active = serializers.BooleanField()
+
+
+class TeamMemberSerializer(serializers.ModelSerializer):
+    """Serializer para consultar integrantes del equipo de trabajo."""
+
+    rol = serializers.CharField(source="perfil_trabajador.rol", default="sin_rol")
+    rol_display = serializers.CharField(
+        source="perfil_trabajador.get_rol_display", default="Sin rol"
+    )
+    sede_id = serializers.IntegerField(
+        source="perfil_trabajador.sede.id_sede", default=None, allow_null=True
+    )
+    sede_nombre = serializers.CharField(
+        source="perfil_trabajador.sede.nombre_sede", default=None, allow_null=True
+    )
+    telefono = serializers.CharField(source="perfil_trabajador.telefono", default="")
+
+    class Meta:
+        model = User
+        fields = [
+            "id",
+            "username",
+            "email",
+            "first_name",
+            "last_name",
+            "rol",
+            "rol_display",
+            "sede_id",
+            "sede_nombre",
+            "telefono",
+            "is_active",
+        ]
+
+
+class TeamMemberCreateSerializer(serializers.Serializer):
+    """
+    Serializer para registrar una persona al equipo con rol asignado (HU-A9).
+    Cumple con el DoD:
+    - Valida que el correo no esté duplicado.
+    - Valida que el nombre de usuario sea único.
+    - Asigna y persiste el rol seleccionado.
+    - Crea la cuenta con is_active=True y contraseña hasheada.
+    """
+
+    username = serializers.CharField(max_length=150)
+    email = serializers.EmailField(max_length=254)
+    first_name = serializers.CharField(max_length=150)
+    last_name = serializers.CharField(max_length=150)
+    password = serializers.CharField(write_only=True, min_length=8)
+    rol = serializers.ChoiceField(choices=PerfilTrabajador.Rol.choices)
+    sede_id = serializers.IntegerField(required=False, allow_null=True)
+    telefono = serializers.CharField(max_length=20, required=False, allow_blank=True)
+
+    def validate_email(self, value):
+        if User.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError(
+                "Ya existe una cuenta registrada con este correo electrónico."
+            )
+        return value.lower()
+
+    def validate_username(self, value):
+        if User.objects.filter(username__iexact=value).exists():
+            raise serializers.ValidationError(
+                "Ya existe una cuenta con este nombre de usuario."
+            )
+        return value
+
+    def validate_sede_id(self, value):
+        if value is not None and not Sede.objects.filter(id_sede=value).exists():
+            raise serializers.ValidationError("La sede especificada no existe.")
+        return value
+
+    def create(self, validated_data):
+        rol = validated_data.pop("rol")
+        sede_id = validated_data.pop("sede_id", None)
+        telefono = validated_data.pop("telefono", "")
+        password = validated_data.pop("password")
+
+        sede = Sede.objects.filter(id_sede=sede_id).first() if sede_id else None
+
+        with transaction.atomic():
+            user = User.objects.create(
+                username=validated_data["username"],
+                email=validated_data["email"],
+                first_name=validated_data["first_name"],
+                last_name=validated_data["last_name"],
+                is_staff=True,
+                is_active=True,
+            )
+            user.set_password(password)
+            user.save()
+
+            PerfilTrabajador.objects.create(
+                usuario=user,
+                rol=rol,
+                sede=sede,
+                telefono=telefono,
+            )
+
+        return user
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     @classmethod

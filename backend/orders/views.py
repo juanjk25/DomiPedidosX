@@ -18,6 +18,8 @@ from .serializers import (
     PasswordResetRequestSerializer,
     PasswordResetConfirmSerializer,
     TeamMemberStatusSerializer,
+    TeamMemberSerializer,
+    TeamMemberCreateSerializer,
     SedeSerializer,
     CategoriaSerializer,
     ProductoSerializer,
@@ -287,6 +289,31 @@ class CustomerListView(APIView):
             for c in clientes
         ]
         return Response(data)
+
+
+class TeamMemberListCreateView(APIView):
+    """
+    Vista administrativa para gestionar el equipo laboral (HU-A9).
+    - GET: Lista los integrantes del equipo de trabajo (solo administradores).
+    - POST: Registra un nuevo trabajador con rol asignado (solo administradores).
+    """
+
+    permission_classes = [permissions.IsAdminUser]
+
+    def get(self, request):
+        trabajadores = User.objects.filter(is_staff=True).order_by("-date_joined")
+        serializer = TeamMemberSerializer(trabajadores, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        serializer = TeamMemberCreateSerializer(data=request.data)
+        if serializer.is_valid():
+            user = serializer.save()
+            return Response(
+                TeamMemberSerializer(user).data,
+                status=status.HTTP_201_CREATED,
+            )
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class TeamMemberStatusView(APIView):

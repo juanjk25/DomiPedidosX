@@ -12,6 +12,7 @@ from .views import (
     RegisterView,
     PasswordResetRequestView,
     PasswordResetConfirmView,
+    TeamMemberListCreateView,
     TeamMemberStatusView,
     CustomTokenObtainPairView,
 )
@@ -31,5 +32,6 @@ urlpatterns = [
     path("orders/", OrderListCreateView.as_view(), name="orders"),
     path("orders/<int:pk>/cancel/", CustomerOrderCancelView.as_view(), name="order-cancel"),
     path("orders/<int:pk>/status/", OrderStatusView.as_view(), name="order-status"),
+    path("team-members/", TeamMemberListCreateView.as_view(), name="team-members"),
     path("team-members/<int:pk>/status/", TeamMemberStatusView.as_view(), name="team-member-status"),
 ]
