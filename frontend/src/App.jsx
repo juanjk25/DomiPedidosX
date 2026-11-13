@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { api } from './api.js'
 import RegistroCliente from './pages/RegistroCliente.jsx'
 import MenuPromociones from './pages/MenuPromociones.jsx'
+import PanelOperador from './pages/PanelOperador.jsx' 
 
 function AuthPanel({ register, setRegister, onAuthenticated }) {
   const [form, setForm] = useState({
@@ -19,11 +20,12 @@ function AuthPanel({ register, setRegister, onAuthenticated }) {
     setForm(current => ({ ...current, [event.target.name]: value }))
   }
 
-  async function submit(event) {
+async function submit(event) {
     event.preventDefault()
     setError('')
     setBusy(true)
     try {
+      let tokens;
       if (register) {
         const accountData = {
           email: form.email,
@@ -39,15 +41,29 @@ function AuthPanel({ register, setRegister, onAuthenticated }) {
           fecha_nacimiento: form.date_of_birth,
         }
         const registered = await api('/auth/register/', { method: 'POST', body: JSON.stringify(accountData) })
-        const tokens = await api('/auth/token/', { method: 'POST', body: JSON.stringify({ username: registered.username, password: form.password }) })
-        localStorage.setItem('domi_access', tokens.access)
-        localStorage.setItem('domi_refresh', tokens.refresh)
+        tokens = await api('/auth/token/', { method: 'POST', body: JSON.stringify({ username: registered.username, password: form.password }) })
       } else {
-        const tokens = await api('/auth/token/', { method: 'POST', body: JSON.stringify({ username: form.email, password: form.password }) })
-        localStorage.setItem('domi_access', tokens.access)
-        localStorage.setItem('domi_refresh', tokens.refresh)
+        tokens = await api('/auth/token/', { method: 'POST', body: JSON.stringify({ username: form.email, password: form.password }) })
       }
-      onAuthenticated(form.delivery_address)
+      
+      localStorage.setItem('domi_access', tokens.access)
+      localStorage.setItem('domi_refresh', tokens.refresh)
+      
+      // Extrae el rol de la respuesta HTTP (tokens.user.role) o del token (payload.role)
+      let detectedRole = tokens.user?.role
+      if (!detectedRole && tokens.access) {
+        try {
+          const payload = JSON.parse(atob(tokens.access.split('.')[1]))
+          detectedRole = payload.role || payload.user?.role
+        } catch (e) {
+          console.error('Error parseando token:', e)
+        }
+      }
+
+      const finalRole = detectedRole || 'cliente'
+      localStorage.setItem('domi_role', finalRole)
+      
+      onAuthenticated(form.delivery_address, finalRole)
     } catch (err) {
       setError(err.message)
     } finally {
@@ -77,7 +93,8 @@ function AuthPanel({ register, setRegister, onAuthenticated }) {
 }
 
 function App() {
-  const [authenticated, setAuthenticated] = useState(false)
+  const [authenticated, setAuthenticated] = useState(() => !!localStorage.getItem('domi_access'))
+  const [userRole, setUserRole] = useState(() => localStorage.getItem('domi_role') || 'cliente')
   const [authMode, setAuthMode] = useState('login')
   const [products, setProducts] = useState([])
   const [categories, setCategories] = useState([])
@@ -87,19 +104,22 @@ function App() {
   const [notice, setNotice] = useState('')
 
   useEffect(() => {
-    Promise.all([api('/categories/'), api('/products/')])
-      .then(([categoryData, productData]) => {
-        setCategories(categoryData.map(item => ({ id: item.nombre, name: item.nombre })))
-        setProducts(productData.map(item => ({
-          id: item.id_producto,
-          name: item.nombre_producto,
-          price: item.precio_venta,
-          category_name: item.tipo_de_producto,
-          description: 'Masa artesanal y tus ingredientes favoritos.',
-        })))
-      })
-      .catch(err => setError(err.message))
-  }, [])
+    // NUEVO CONDICIONAL: Solo cargar el menú si es cliente
+    if (authenticated && userRole === 'cliente') {
+      Promise.all([api('/categories/'), api('/products/')])
+        .then(([categoryData, productData]) => {
+          setCategories(categoryData.map(item => ({ id: item.nombre, name: item.nombre })))
+          setProducts(productData.map(item => ({
+            id: item.id_producto,
+            name: item.nombre_producto,
+            price: item.precio_venta,
+            category_name: item.tipo_de_producto,
+            description: 'Masa artesanal y tus ingredientes favoritos.',
+          })))
+        })
+        .catch(err => setError(err.message))
+    }
+  }, [authenticated, userRole]) 
 
   const cartItems = useMemo(() => Object.entries(cart)
     .map(([id, quantity]) => ({ product: products.find(item => String(item.id) === id), quantity }))
@@ -121,10 +141,12 @@ function App() {
     })
   }
 
-  function logout() {
+function logout() {
     localStorage.removeItem('domi_access')
     localStorage.removeItem('domi_refresh')
+    localStorage.removeItem('domi_role')
     setAuthenticated(false)
+    setUserRole('cliente')
     setAuthMode('login')
     setCart({})
   }
@@ -161,8 +183,32 @@ function App() {
 
   return <div className="app-shell">
     {!authenticated
-      ? <AuthPanel key={authMode} register={authMode === 'register'} setRegister={value => setAuthMode(value ? 'register' : 'login')} onAuthenticated={initialAddress => { setAddress(initialAddress || ''); setAuthenticated(true) }} />
-      : <MenuPromociones products={products} categories={categories} cartItems={cartItems} address={address} error={error} onError={setError} onAddressChange={setAddress} onAdd={addProduct} onChangeQuantity={changeQuantity} onCheckout={checkout} onLogout={logout} />}
+      ? <AuthPanel 
+          key={authMode} 
+          register={authMode === 'register'} 
+          setRegister={value => setAuthMode(value ? 'register' : 'login')} 
+          onAuthenticated={(initialAddress, role) => { 
+            setAddress(initialAddress || '')
+            setUserRole(role) // NUEVO: Guardar el rol
+            setAuthenticated(true) 
+          }} 
+        />
+      : userRole === 'operator' 
+        ? <PanelOperador onLogout={logout} onError={setError} /> // NUEVO: Renderizar panel de operador
+        : <MenuPromociones 
+            products={products} 
+            categories={categories} 
+            cartItems={cartItems} 
+            address={address} 
+            error={error} 
+            onError={setError} 
+            onAddressChange={setAddress} 
+            onAdd={addProduct} 
+            onChangeQuantity={changeQuantity} 
+            onCheckout={checkout} 
+            onLogout={logout} 
+          />
+    }
     {notice && <div className="toast">✓ {notice}</div>}
   </div>
 }

@@ -12,7 +12,7 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
-from .models import Cliente, Sede, Producto, Pedido
+from .models import Cliente, Sede, Producto, Pedido, Categoria
 from .serializers import (
     RegisterSerializer,
     PasswordResetRequestSerializer,
@@ -25,6 +25,7 @@ from .serializers import (
     PedidoCreateSerializer,
     CustomTokenObtainPairSerializer,
 )
+from .permissions import IsStaffRole
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -184,15 +185,8 @@ class CategoryListView(APIView):
     permission_classes = [permissions.AllowAny]
 
     def get(self, request):
-        categorias = (
-            Producto.objects
-            .values_list("tipo_de_producto", flat=True)
-            .distinct()
-        )
-        data = [
-            {"id": index + 1, "nombre": nombre}
-            for index, nombre in enumerate(categorias)
-        ]
+        categorias = Categoria.objects.filter(activa=True)
+        data = [{"id": c.id_categoria, "nombre": c.nombre} for c in categorias]
         return Response(data)
 
 
@@ -329,3 +323,34 @@ class TeamMemberStatusView(APIView):
 
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
+
+class OperatorCategoryListView(APIView):
+    permission_classes = [permissions.IsAuthenticated, IsStaffRole]
+
+    def get(self, request):
+        categorias = Categoria.objects.all()
+        serializer = CategoriaSerializer(categorias, many=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+        serializer = CategoriaSerializer(data=request.data)
+        if serializer.is_valid():
+            categoria = serializer.save()
+            return Response(CategoriaSerializer(categoria).data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class OperatorCategoryDetailView(APIView):
+    permission_classes = [permissions.IsAuthenticated, IsStaffRole]
+
+    def patch(self, request, pk):
+        try:
+            categoria = Categoria.objects.get(pk=pk)
+        except Categoria.DoesNotExist:
+            return Response({"error": "Categoría no encontrada."}, status=status.HTTP_404_NOT_FOUND)
+        
+        activa = request.data.get('activa')
+        if activa is not None:
+            categoria.activa = activa
+            categoria.save(update_fields=['activa'])
+            
+        return Response(CategoriaSerializer(categoria).data)
