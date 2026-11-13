@@ -6,21 +6,20 @@ def role_of(user):
         return None
     if user.is_superuser:
         return "admin"
-    
+    if hasattr(user, "perfil_trabajador"):
+        rol = user.perfil_trabajador.rol
+        mapeo = {
+            "operador_sede": "operator",
+            "cocina": "kitchen",
+            "repartidor": "courier",
+            "administrador": "admin",
+        }
+        return mapeo.get(rol, rol)
     try:
-        if user.cliente_credencial:
-            return "cliente"
+        user.cliente_credencial
+        return "customer"
     except CredencialCliente.DoesNotExist:
-        pass
-        
-    try:
-        cred_emp = user.empleado_credencial
-        if cred_emp.empleado.cargo.lower() == "operador de sede":
-            return "operator"
-    except CredencialEmpleado.DoesNotExist:
-        pass
-        
-    return "admin" if user.is_staff else None
+        return "admin" if user.is_staff else None
 
 class IsStaffRole(BasePermission):
     allowed_roles = {"operator", "kitchen", "courier", "admin"}

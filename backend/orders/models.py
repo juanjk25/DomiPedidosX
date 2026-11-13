@@ -272,6 +272,39 @@ class Factura(models.Model):
     class Meta:
         db_table = "factura"
 
+
+class PerfilTrabajador(models.Model):
+    """
+    Perfil laboral asociado a una cuenta de usuario del sistema (HU-A9).
+    Permite al administrador asignar y persistir el rol y la sede del trabajador.
+    """
+
+    class Rol(models.TextChoices):
+        OPERADOR = "operador_sede", "Operador de sede"
+        COCINA = "cocina", "Cocina"
+        REPARTIDOR = "repartidor", "Repartidor"
+        ADMINISTRADOR = "administrador", "Administrador"
+
+    usuario = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="perfil_trabajador",
+    )
+    rol = models.CharField(max_length=20, choices=Rol.choices)
+    sede = models.ForeignKey(
+        Sede,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="trabajadores",
+    )
+    telefono = models.CharField(max_length=20, blank=True)
+
+    class Meta:
+        db_table = "perfil_trabajador"
+
+    def __str__(self):
+        return f"{self.usuario.username} ({self.get_rol_display()})"
 class CredencialEmpleado(models.Model):
     empleado = models.OneToOneField(Empleado, on_delete=models.CASCADE, related_name="credencial")
     usuario = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="empleado_credencial")
