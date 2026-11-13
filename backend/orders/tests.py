@@ -19,6 +19,61 @@ class SedeHorarioTests(APITestCase):
 
     def setUp(self):
         # 1. Crear ubicación geográfica base
+        self.depto = Departamento.objects.create(nombre_departamento="Valle del Cauca")
+        self.ciudad = Ciudad.objects.create(
+            nombre_ciudad="Cali", departamento=self.depto
+        )
+
+        # 2. Administrador que realiza la gestión laboral
+        self.admin = User.objects.create_superuser(
+            username="admin_test",
+            email="admin@domipedidos.com",
+            password="AdminPassword123!",
+        )
+
+        # 3. Usuario regular sin permisos
+        self.cliente = User.objects.create_user(
+            username="cliente_comun",
+            email="cliente@correo.com",
+            password="ClientePass123!",
+        )
+
+        self.url = "/api/team-members/"
+
+    def test_consultar_horario_publico(self):
+        """Cualquier usuario puede consultar el horario sin estar autenticado."""
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["nombre_sede"], "Sede San Antonio")
+        self.assertEqual(response.data["horario_atencion_apertura"], "08:00:00")
+        self.assertEqual(response.data["horario_atencion_cierre"], "22:00:00")
+        self.assertIn("esta_abierta", response.data)
+
+    def test_operador_puede_actualizar_horario(self):
+        """Un operador autorizado puede actualizar el horario con éxito."""
+        self.client.force_authenticate(user=self.operador)
+        data = {"horario_atencion_cierre": "23:30:00"}
+        response = self.client.patch(self.url, data)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.sede.refresh_from_db()
+        self.assertEqual(self.sede.horario_atencion_cierre, time(23, 30))
+
+    def test_rechaza_hora_cierre_anterior_a_apertura(self):
+        """Valida que no se permitan horas ilógicas (cierre antes que apertura)."""
+        self.client.force_authenticate(user=self.operador)
+        data = {"horario_atencion_cierre": "07:00:00"}  # Abre a las 08:00:00
+        response = self.client.patch(self.url, data)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("horario_atencion_cierre", response.data)
+
+    def test_usuario_anonimo_no_puede_modificar(self):
+        """Un usuario sin autenticar recibe 401 Unauthorized al intentar modificar."""
+        data = {"horario_atencion_cierre": "23:00:00"}
+        response = self.client.patch(self.url, data)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)    
+
+    
 class AsignarRolTrabajadorTests(APITestCase):
     """
     Pruebas unitarias para HU-A9: Asignar rol a integrante del equipo.
@@ -64,54 +119,6 @@ class AsignarRolTrabajadorTests(APITestCase):
             email="cliente@test.com",
             password="TestPassword123!",
         )
-
-    def test_consultar_horario_publico(self):
-        """Cualquier usuario puede consultar el horario sin estar autenticado."""
-        response = self.client.get(self.url)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data["nombre_sede"], "Sede San Antonio")
-        self.assertEqual(response.data["horario_atencion_apertura"], "08:00:00")
-        self.assertEqual(response.data["horario_atencion_cierre"], "22:00:00")
-        self.assertIn("esta_abierta", response.data)
-
-    def test_operador_puede_actualizar_horario(self):
-        """Un operador autorizado puede actualizar el horario con éxito."""
-        self.client.force_authenticate(user=self.operador)
-        data = {"horario_atencion_cierre": "23:30:00"}
-        response = self.client.patch(self.url, data)
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        self.sede.refresh_from_db()
-        self.assertEqual(self.sede.horario_atencion_cierre, time(23, 30))
-
-    def test_rechaza_hora_cierre_anterior_a_apertura(self):
-        """Valida que no se permitan horas ilógicas (cierre antes que apertura)."""
-        self.client.force_authenticate(user=self.operador)
-        data = {"horario_atencion_cierre": "07:00:00"}  # Abre a las 08:00:00
-        response = self.client.patch(self.url, data)
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("horario_atencion_cierre", response.data)
-
-    def test_usuario_anonimo_no_puede_modificar(self):
-        """Un usuario sin autenticar recibe 401 Unauthorized al intentar modificar."""
-        data = {"horario_atencion_cierre": "23:00:00"}
-        response = self.client.patch(self.url, data)
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-        # 2. Administrador que realiza la gestión laboral
-        self.admin = User.objects.create_superuser(
-            username="admin_test",
-            email="admin@domipedidos.com",
-            password="AdminPassword123!",
-        )
-
-        # 3. Usuario regular sin permisos
-        self.cliente = User.objects.create_user(
-            username="cliente_comun",
-            email="cliente@correo.com",
-            password="ClientePass123!",
-        )
-
-        self.url = "/api/team-members/"
 
     def test_admin_crea_trabajador_con_rol_exitosamente(self):
         """Un administrador puede crear una cuenta de trabajador con su rol y sede."""
@@ -198,3 +205,4 @@ class AsignarRolTrabajadorTests(APITestCase):
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIsInstance(response.data, list)
+   

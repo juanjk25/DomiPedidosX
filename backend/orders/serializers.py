@@ -3,8 +3,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.db import transaction
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from .models import Cliente, CredencialCliente, Sede, Producto, Pedido, DetallePedido, PerfilTrabajador
-from .models import Cliente, CredencialCliente, Sede, Producto, Pedido, DetallePedido, Categoria, CredencialEmpleado
+from .models import Cliente, CredencialCliente, Sede, Producto, Pedido, DetallePedido, PerfilTrabajador, Categoria, CredencialEmpleado
 
 User = get_user_model()
 
