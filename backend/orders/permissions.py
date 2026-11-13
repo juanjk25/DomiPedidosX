@@ -1,5 +1,5 @@
 from rest_framework.permissions import BasePermission
-from .models import CredencialCliente
+from .models import CredencialCliente, CredencialEmpleado
 
 def role_of(user):
     if not user or not user.is_authenticated:
