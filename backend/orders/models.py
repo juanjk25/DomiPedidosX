@@ -94,39 +94,80 @@ class Sede(models.Model):
     class Meta:
         db_table = "sedes"
 
-    def esta_en_horario(self, hora_consulta=None):
-        """
-        Determina si la sede está abierta en una hora específica o en la hora actual.
-        Útil para validaciones de disponibilidad al recibir pedidos (HU-E8).
-        """
-        from django.utils import timezone
-        if hora_consulta is None:
-            hora_consulta = timezone.localtime().time()
-
-        if self.horario_atencion_apertura <= self.horario_atencion_cierre:
-            return self.horario_atencion_apertura <= hora_consulta <= self.horario_atencion_cierre
-        return (
-            hora_consulta >= self.horario_atencion_apertura
-            or hora_consulta <= self.horario_atencion_cierre
-        )
-
 
 class Categoria(models.Model):
-    id_categoria = models.AutoField(primary_key=True)
-    nombre = models.CharField(max_length=50, unique=True)
-    activa = models.BooleanField(default=True) # El estado es global
+    nombre = models.CharField(max_length=50)
+    descripcion = models.CharField(max_length=500, blank=True, null=True)
+    # NULL conserva categorías antiguas aún pendientes de asignación.
+    sede = models.ForeignKey(Sede, on_delete=models.PROTECT, null=True, blank=True)
+    activo = models.BooleanField(default=True)
 
     class Meta:
         db_table = "categorias"
+        ordering = ["nombre"]
+        constraints = [models.UniqueConstraint(fields=("sede", "nombre"), name="uq_categoria_sede_nombre")]
+
+    def __str__(self):
+        return self.nombre
+
+
+class PerfilTrabajador(models.Model):
+    class Rol(models.TextChoices):
+        OPERADOR = "operador_sede", "Operador de sede"
+        COCINA = "cocina", "Cocina"
+        REPARTIDOR = "repartidor", "Repartidor"
+        ADMINISTRADOR = "administrador", "Administrador"
+
+    usuario = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="perfil_trabajador",
+    )
+    rol = models.CharField(max_length=20, choices=Rol.choices)
+    sede = models.ForeignKey(
+        Sede,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="trabajadores",
+    )
+    telefono = models.CharField(max_length=20, blank=True)
+
+    class Meta:
+        db_table = "perfil_trabajador"
+
+
+class PerfilPersonal(models.Model):
+    """Asignación mínima para integrar HU-A9 con la gestión de menú."""
+
+    usuario = models.OneToOneField(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="perfil_personal"
+    )
+    rol = models.CharField(max_length=20, choices=[
+        ("operator", "Operador"), ("kitchen", "Cocina"), ("courier", "Repartidor")
+    ])
+    sede = models.ForeignKey(Sede, on_delete=models.PROTECT)
+
+    class Meta:
+        db_table = "perfil_personal"
+
 
 class Producto(models.Model):
     id_producto = models.AutoField(primary_key=True)
     codigo_de_barras = models.CharField(max_length=30, unique=True)
     nombre_producto = models.CharField(max_length=80)
-    categoria = models.ForeignKey(Categoria, db_column="id_categoria", on_delete=models.PROTECT, null=True)    
+    tipo_de_producto = models.CharField(max_length=50)
     activo = models.BooleanField(default=True)
     precio_compra = models.DecimalField(max_digits=12, decimal_places=2)
     precio_venta = models.DecimalField(max_digits=12, decimal_places=2)
+    categoria = models.ForeignKey(
+        Categoria, on_delete=models.PROTECT, null=True, blank=True, related_name="productos"
+    )
+    sede = models.ForeignKey(
+        Sede, on_delete=models.PROTECT, null=True, blank=True, related_name="productos"
+    )
+    imagen_url = models.URLField(max_length=500, blank=True)
+    tiempo_preparacion = models.PositiveSmallIntegerField(null=True, blank=True)
 
     class Meta:
         db_table = "productos"
@@ -171,6 +212,18 @@ class Empleado(models.Model):
 
     class Meta:
         db_table = "empleados"
+
+
+class CredencialEmpleado(models.Model):
+    empleado = models.OneToOneField(Empleado, on_delete=models.CASCADE, related_name="credencial")
+    usuario = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="empleado_credencial",
+    )
+
+    class Meta:
+        db_table = "empleado_credencial"
 
 
 class Administrador(models.Model):
@@ -287,43 +340,3 @@ class Factura(models.Model):
 
     class Meta:
         db_table = "factura"
-
-
-class PerfilTrabajador(models.Model):
-    """
-    Perfil laboral asociado a una cuenta de usuario del sistema (HU-A9).
-    Permite al administrador asignar y persistir el rol y la sede del trabajador.
-    """
-
-    class Rol(models.TextChoices):
-        OPERADOR = "operador_sede", "Operador de sede"
-        COCINA = "cocina", "Cocina"
-        REPARTIDOR = "repartidor", "Repartidor"
-        ADMINISTRADOR = "administrador", "Administrador"
-
-    usuario = models.OneToOneField(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name="perfil_trabajador",
-    )
-    rol = models.CharField(max_length=20, choices=Rol.choices)
-    sede = models.ForeignKey(
-        Sede,
-        on_delete=models.PROTECT,
-        null=True,
-        blank=True,
-        related_name="trabajadores",
-    )
-    telefono = models.CharField(max_length=20, blank=True)
-
-    class Meta:
-        db_table = "perfil_trabajador"
-
-    def __str__(self):
-        return f"{self.usuario.username} ({self.get_rol_display()})"
-class CredencialEmpleado(models.Model):
-    empleado = models.OneToOneField(Empleado, on_delete=models.CASCADE, related_name="credencial")
-    usuario = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="empleado_credencial")
-
-    class Meta:
-        db_table = "empleado_credencial"

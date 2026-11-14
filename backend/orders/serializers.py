@@ -3,8 +3,16 @@ from django.contrib.auth.password_validation import validate_password
 from django.db import transaction
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from .models import Cliente, CredencialCliente, Sede, Producto, Pedido, DetallePedido, PerfilTrabajador
-from .models import Cliente, CredencialCliente, Sede, Producto, Pedido, DetallePedido, Categoria, CredencialEmpleado
+from .models import (
+    Cliente,
+    CredencialCliente,
+    Sede,
+    Producto,
+    Pedido,
+    DetallePedido,
+    PerfilTrabajador,
+)
+from .permissions import role_of, branch_of
 
 User = get_user_model()
 
@@ -132,8 +140,6 @@ class SedeSerializer(serializers.ModelSerializer):
 
 
 class SedeHorarioSerializer(serializers.ModelSerializer):
-    """Serializer para consultar y actualizar el horario de atención de una sede (HU-E8)."""
-
     esta_abierta = serializers.SerializerMethodField()
 
     class Meta:
@@ -151,7 +157,6 @@ class SedeHorarioSerializer(serializers.ModelSerializer):
         return obj.esta_en_horario()
 
     def validate(self, data):
-        """Valida que la hora de cierre sea posterior a la de apertura."""
         apertura = data.get(
             "horario_atencion_apertura",
             getattr(self.instance, "horario_atencion_apertura", None),
@@ -160,40 +165,11 @@ class SedeHorarioSerializer(serializers.ModelSerializer):
             "horario_atencion_cierre",
             getattr(self.instance, "horario_atencion_cierre", None),
         )
-
         if apertura and cierre and apertura >= cierre:
-            raise serializers.ValidationError({
-                "horario_atencion_cierre": (
-                    "La hora de cierre debe ser posterior a la hora de apertura."
-                )
-            })
+            raise serializers.ValidationError(
+                {"horario_atencion_cierre": "La hora de cierre debe ser posterior a la hora de apertura."}
+            )
         return data
-
-
-class CategoriaSerializer(serializers.Serializer):
-    """Categorías derivadas del campo tipo_de_producto de Producto."""
-
-    id = serializers.IntegerField()
-    nombre = serializers.CharField()
-class CategoriaSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Categoria
-        fields = ['id_categoria', 'nombre', 'activa']
-
-
-class ProductoSerializer(serializers.ModelSerializer):
-    categoria_nombre = serializers.CharField(source='categoria.nombre', read_only=True)
-    
-    class Meta:
-        model = Producto
-        fields = [
-            "id_producto",
-            "codigo_de_barras",
-            "nombre_producto",
-            "categoria_nombre", # Reemplaza tipo_de_producto
-            "activo",
-            "precio_venta",
-        ]
 
 
 class DetallePedidoSerializer(serializers.ModelSerializer):
@@ -269,7 +245,20 @@ class PedidoCreateSerializer(serializers.Serializer):
     def create(self, validated_data):
         items_data = validated_data.pop("items")
         request = self.context["request"]
-        cliente = Cliente.objects.get(credencial__usuario=request.user)
+        try:
+            cliente = Cliente.objects.get(credencial__usuario=request.user)
+        except Cliente.DoesNotExist:
+            raise serializers.ValidationError({"detail": "Esta cuenta no tiene perfil de cliente."})
+        from .catalog_views import in_branch, public_products
+        product_ids = [item["producto_id"] for item in items_data]
+        if len(product_ids) != len(set(product_ids)):
+            raise serializers.ValidationError({"items": "Agrupa las cantidades de cada producto en una sola línea."})
+        # Bloquea las filas mientras se confirma el pedido para validar la publicación.
+        available = in_branch(public_products(), validated_data["sede"].pk).filter(pk__in=product_ids)
+        available_ids = list(available.values_list("pk", flat=True))
+        products = {p.pk: p for p in Producto.objects.select_for_update().filter(pk__in=available_ids)}
+        if len(products) != len(product_ids) or any(not p.activo for p in products.values()):
+            raise serializers.ValidationError({"items": "Un producto ya no está disponible en esta sede. Actualiza el menú."})
 
         pedido = Pedido.objects.create(
             cliente=cliente,
@@ -279,7 +268,7 @@ class PedidoCreateSerializer(serializers.Serializer):
         )
 
         for item in items_data:
-            producto = Producto.objects.get(pk=item["producto_id"])
+            producto = products[item["producto_id"]]
             DetallePedido.objects.create(
                 pedido=pedido,
                 producto=producto,
@@ -304,8 +293,6 @@ class TeamMemberStatusSerializer(serializers.Serializer):
 
 
 class TeamMemberSerializer(serializers.ModelSerializer):
-    """Serializer para consultar integrantes del equipo de trabajo."""
-
     rol = serializers.CharField(source="perfil_trabajador.rol", default="sin_rol")
     rol_display = serializers.CharField(
         source="perfil_trabajador.get_rol_display", default="Sin rol"
@@ -321,30 +308,12 @@ class TeamMemberSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            "id",
-            "username",
-            "email",
-            "first_name",
-            "last_name",
-            "rol",
-            "rol_display",
-            "sede_id",
-            "sede_nombre",
-            "telefono",
-            "is_active",
+            "id", "username", "email", "first_name", "last_name",
+            "rol", "rol_display", "sede_id", "sede_nombre", "telefono", "is_active",
         ]
 
 
 class TeamMemberCreateSerializer(serializers.Serializer):
-    """
-    Serializer para registrar una persona al equipo con rol asignado (HU-A9).
-    Cumple con el DoD:
-    - Valida que el correo no esté duplicado.
-    - Valida que el nombre de usuario sea único.
-    - Asigna y persiste el rol seleccionado.
-    - Crea la cuenta con is_active=True y contraseña hasheada.
-    """
-
     username = serializers.CharField(max_length=150)
     email = serializers.EmailField(max_length=254)
     first_name = serializers.CharField(max_length=150)
@@ -356,16 +325,12 @@ class TeamMemberCreateSerializer(serializers.Serializer):
 
     def validate_email(self, value):
         if User.objects.filter(email__iexact=value).exists():
-            raise serializers.ValidationError(
-                "Ya existe una cuenta registrada con este correo electrónico."
-            )
+            raise serializers.ValidationError("Ya existe una cuenta registrada con este correo electrónico.")
         return value.lower()
 
     def validate_username(self, value):
         if User.objects.filter(username__iexact=value).exists():
-            raise serializers.ValidationError(
-                "Ya existe una cuenta con este nombre de usuario."
-            )
+            raise serializers.ValidationError("Ya existe una cuenta con este nombre de usuario.")
         return value
 
     def validate_sede_id(self, value):
@@ -378,64 +343,34 @@ class TeamMemberCreateSerializer(serializers.Serializer):
         sede_id = validated_data.pop("sede_id", None)
         telefono = validated_data.pop("telefono", "")
         password = validated_data.pop("password")
-
-        sede = Sede.objects.filter(id_sede=sede_id).first() if sede_id else None
-
         with transaction.atomic():
             user = User.objects.create(
-                username=validated_data["username"],
-                email=validated_data["email"],
-                first_name=validated_data["first_name"],
-                last_name=validated_data["last_name"],
-                is_staff=True,
-                is_active=True,
+                **validated_data, is_staff=True, is_active=True
             )
             user.set_password(password)
-            user.save()
-
+            user.save(update_fields=["password"])
             PerfilTrabajador.objects.create(
-                usuario=user,
-                rol=rol,
-                sede=sede,
-                telefono=telefono,
+                usuario=user, rol=rol, sede_id=sede_id, telefono=telefono
             )
-
         return user
+
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     @classmethod
     def get_token(cls, user):
         token = super().get_token(user)
-        # Inyectar rol dentro del payload del Token JWT
-        role = "admin" if user.is_superuser else "cliente"
-        try:
-            if hasattr(user, 'empleado_credencial'):
-                cargo = user.empleado_credencial.empleado.cargo.strip().lower()
-                if cargo == "operador de sede":
-                    role = "operator"
-        except Exception:
-            pass
-        token['role'] = role
+        token["username"] = user.username
+        token["role"] = role_of(user)
         return token
 
     def validate(self, attrs):
         data = super().validate(attrs)
-        user = self.user
-        role = "admin" if user.is_superuser else "cliente"
-        
-        try:
-            if hasattr(user, 'empleado_credencial'):
-                cargo = user.empleado_credencial.empleado.cargo.strip().lower()
-                if cargo == "operador de sede":
-                    role = "operator"
-        except Exception:
-            pass
-
-        # Inyectar el objeto usuario en la respuesta JSON
         data["user"] = {
-            "id": user.id,
-            "username": user.username,
-            "email": user.email,
-            "role": role,
+            "id": self.user.id,
+            "username": self.user.username,
+            "email": self.user.email,
+            "role": role_of(self.user),
+            "sede": branch_of(self.user),
+            "can_manage_menu": role_of(self.user) in {"operator", "admin"},
         }
         return data

@@ -12,9 +12,8 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
-from .models import Cliente, Sede, Producto, Pedido
-from .permissions import IsOrderManager
-from .models import Cliente, Sede, Producto, Pedido, Categoria
+from .models import Cliente, Sede, Pedido
+from .permissions import role_of, branch_of, IsAdministrator, IsOrderManager
 from .serializers import (
     RegisterSerializer,
     PasswordResetRequestSerializer,
@@ -24,19 +23,17 @@ from .serializers import (
     TeamMemberCreateSerializer,
     SedeSerializer,
     SedeHorarioSerializer,
-    CategoriaSerializer,
-    ProductoSerializer,
     PedidoSerializer,
     PedidoCreateSerializer,
     CustomTokenObtainPairSerializer,
 )
-from .permissions import IsStaffRole
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
 
 
 class RegisterView(APIView):
+    authentication_classes = []
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
@@ -58,6 +55,7 @@ class RegisterView(APIView):
 
 
 class PasswordResetRequestView(APIView):
+    authentication_classes = []
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
@@ -109,6 +107,7 @@ class PasswordResetRequestView(APIView):
 
 
 class PasswordResetConfirmView(APIView):
+    authentication_classes = []
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
@@ -163,21 +162,21 @@ class MeView(APIView):
 
     def get(self, request):
         user = request.user
+        data = {
+            "id": user.id, "email": user.email, "username": user.username,
+            "role": role_of(user), "sede": branch_of(user),
+            "can_manage_menu": role_of(user) in {"operator", "admin"},
+        }
         try:
             cliente = Cliente.objects.get(credencial__usuario=user)
-            return Response({
-                "id": user.id,
-                "email": user.email,
-                "nombres": cliente.nombres,
-                "apellidos": cliente.apellidos,
+            data.update({
+                "nombres": cliente.nombres, "apellidos": cliente.apellidos,
                 "telefono": cliente.telefono_cliente,
+                "direccion_residencia": cliente.direccion_residencia,
             })
         except Cliente.DoesNotExist:
-            return Response({
-                "id": user.id,
-                "email": user.email,
-                "role": "admin",
-            })
+            pass
+        return Response(data)
 
 
 class BranchListView(generics.ListAPIView):
@@ -187,11 +186,6 @@ class BranchListView(generics.ListAPIView):
 
 
 class SedeHorarioView(generics.RetrieveUpdateAPIView):
-    """
-    Vista para consultar y actualizar el horario de atención de una sede (HU-E8).
-    - GET: Consulta el horario de la sede (acceso público).
-    - PUT / PATCH: Modifica el horario de atención (requiere ser operador o administrador).
-    """
     queryset = Sede.objects.all()
     serializer_class = SedeHorarioSerializer
 
@@ -199,27 +193,6 @@ class SedeHorarioView(generics.RetrieveUpdateAPIView):
         if self.request.method in permissions.SAFE_METHODS:
             return [permissions.AllowAny()]
         return [permissions.IsAuthenticated(), IsOrderManager()]
-
-
-class CategoryListView(APIView):
-    permission_classes = [permissions.AllowAny]
-
-    def get(self, request):
-        categorias = Categoria.objects.filter(activa=True)
-        data = [{"id": c.id_categoria, "nombre": c.nombre} for c in categorias]
-        return Response(data)
-
-
-class ProductListView(generics.ListAPIView):
-    permission_classes = [permissions.AllowAny]
-    serializer_class = ProductoSerializer
-
-    def get_queryset(self):
-        qs = Producto.objects.filter(activo=True)
-        categoria = self.request.query_params.get("categoria")
-        if categoria:
-            qs = qs.filter(tipo_de_producto=categoria)
-        return qs
 
 
 class OrderListCreateView(APIView):
@@ -286,7 +259,7 @@ class OrderStatusView(APIView):
 
 
 class CustomerListView(APIView):
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [IsOrderManager]
 
     def get(self, request):
         clientes = Cliente.objects.select_related("credencial__usuario").all()
@@ -304,32 +277,23 @@ class CustomerListView(APIView):
 
 
 class TeamMemberListCreateView(APIView):
-    """
-    Vista administrativa para gestionar el equipo laboral (HU-A9).
-    - GET: Lista los integrantes del equipo de trabajo (solo administradores).
-    - POST: Registra un nuevo trabajador con rol asignado (solo administradores).
-    """
-
     permission_classes = [permissions.IsAdminUser]
 
     def get(self, request):
-        trabajadores = User.objects.filter(is_staff=True).order_by("-date_joined")
-        serializer = TeamMemberSerializer(trabajadores, many=True)
-        return Response(serializer.data, status=status.HTTP_200_OK)
+        workers = User.objects.filter(is_staff=True).order_by("-date_joined")
+        return Response(TeamMemberSerializer(workers, many=True).data)
 
     def post(self, request):
         serializer = TeamMemberCreateSerializer(data=request.data)
-        if serializer.is_valid():
-            user = serializer.save()
-            return Response(
-                TeamMemberSerializer(user).data,
-                status=status.HTTP_201_CREATED,
-            )
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        serializer.is_valid(raise_exception=True)
+        return Response(
+            TeamMemberSerializer(serializer.save()).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class TeamMemberStatusView(APIView):
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [IsAdministrator]
 
     def patch(self, request, pk):
         serializer = TeamMemberStatusSerializer(data=request.data)
@@ -367,35 +331,5 @@ class TeamMemberStatusView(APIView):
 
 
 class CustomTokenObtainPairView(TokenObtainPairView):
+    authentication_classes = []
     serializer_class = CustomTokenObtainPairSerializer
-
-class OperatorCategoryListView(APIView):
-    permission_classes = [permissions.IsAuthenticated, IsStaffRole]
-
-    def get(self, request):
-        categorias = Categoria.objects.all()
-        serializer = CategoriaSerializer(categorias, many=True)
-        return Response(serializer.data)
-
-    def post(self, request):
-        serializer = CategoriaSerializer(data=request.data)
-        if serializer.is_valid():
-            categoria = serializer.save()
-            return Response(CategoriaSerializer(categoria).data, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-class OperatorCategoryDetailView(APIView):
-    permission_classes = [permissions.IsAuthenticated, IsStaffRole]
-
-    def patch(self, request, pk):
-        try:
-            categoria = Categoria.objects.get(pk=pk)
-        except Categoria.DoesNotExist:
-            return Response({"error": "Categoría no encontrada."}, status=status.HTTP_404_NOT_FOUND)
-        
-        activa = request.data.get('activa')
-        if activa is not None:
-            categoria.activa = activa
-            categoria.save(update_fields=['activa'])
-            
-        return Response(CategoriaSerializer(categoria).data)
