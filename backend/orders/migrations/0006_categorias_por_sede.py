@@ -4,6 +4,18 @@ import django.db.models.deletion
 from django.db import migrations, models
 
 
+def add_description_column(apps, schema_editor):
+    with schema_editor.connection.cursor() as cursor:
+        columns = {
+            column.name
+            for column in schema_editor.connection.introspection.get_table_description(cursor, 'categorias')
+        }
+    if 'descripcion' not in columns:
+        schema_editor.execute(
+            'ALTER TABLE categorias ADD COLUMN descripcion VARCHAR(500) NOT NULL DEFAULT \'\''
+        )
+
+
 def assign_categories(apps, schema_editor):
     Category = apps.get_model('orders', 'Categoria')
     Product = apps.get_model('orders', 'Producto')
@@ -41,10 +53,17 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(
-            model_name='categoria',
-            name='descripcion',
-            field=models.CharField(blank=True, max_length=500),
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunPython(add_description_column, migrations.RunPython.noop),
+            ],
+            state_operations=[
+                migrations.AddField(
+                    model_name='categoria',
+                    name='descripcion',
+                    field=models.CharField(blank=True, max_length=500),
+                ),
+            ],
         ),
         migrations.AddField(
             model_name='categoria',
