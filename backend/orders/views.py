@@ -22,6 +22,8 @@ from .serializers import (
     SedeSerializer,
     PedidoSerializer,
     PedidoCreateSerializer,
+    CustomerProfileUpdateSerializer,
+    PasswordChangeSerializer,
     CustomTokenObtainPairSerializer,
 )
 
@@ -154,6 +156,23 @@ class PasswordResetConfirmView(APIView):
         )
 
 
+class PasswordChangeView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        serializer = PasswordChangeSerializer(
+            data=request.data,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+        request.user.set_password(serializer.validated_data["new_password"])
+        request.user.save(update_fields=["password"])
+        return Response(
+            {"message": "La contraseña se cambió correctamente."},
+            status=status.HTTP_200_OK,
+        )
+
+
 class MeView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -168,12 +187,39 @@ class MeView(APIView):
             cliente = Cliente.objects.get(credencial__usuario=user)
             data.update({
                 "nombres": cliente.nombres, "apellidos": cliente.apellidos,
+                "tipo_documento": cliente.tipo_documento,
+                "numero_documento": cliente.numero_documento,
                 "telefono": cliente.telefono_cliente,
+                "telefono_cliente": cliente.telefono_cliente,
+                "extension_telefonica": cliente.extension_telefonica,
                 "direccion_residencia": cliente.direccion_residencia,
+                "referencia_direccion": cliente.referencia_direccion,
+                "latitud": str(cliente.latitud) if cliente.latitud is not None else None,
+                "longitud": str(cliente.longitud) if cliente.longitud is not None else None,
+                "fecha_nacimiento": cliente.fecha_nacimiento.isoformat(),
             })
         except Cliente.DoesNotExist:
             pass
         return Response(data)
+
+    def patch(self, request):
+        try:
+            cliente = Cliente.objects.select_related("credencial__usuario").get(
+                credencial__usuario=request.user
+            )
+        except Cliente.DoesNotExist:
+            return Response(
+                {"detail": "Esta cuenta no tiene perfil de cliente."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = CustomerProfileUpdateSerializer(
+            data=request.data,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.update(cliente, serializer.validated_data)
+        return MeView().get(request)
 
 
 class BranchListView(generics.ListAPIView):

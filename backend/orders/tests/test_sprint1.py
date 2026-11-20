@@ -206,6 +206,95 @@ class Sprint1Tests(TestCase):
         self.operator.is_active = False; self.operator.save()
         self.assertEqual(public.get('/api/me/').status_code, 401)
 
+    def test_customer_can_read_and_update_full_profile(self):
+        self.api.force_authenticate(self.customer)
+        profile = self.api.get('/api/me/')
+        self.assertEqual(profile.status_code, 200)
+        self.assertEqual(profile.data['email'], 'cliente@example.org')
+        self.assertEqual(profile.data['nombres'], 'Cliente')
+
+        response = self.api.patch('/api/me/', {
+            'email': 'nuevo-cliente@example.org',
+            'nombres': 'Andrea',
+            'apellidos': 'Gomez',
+            'tipo_documento': 'CC',
+            'numero_documento': '987654',
+            'telefono_cliente': '3001234567',
+            'extension_telefonica': '57',
+            'direccion_residencia': 'Carrera 20 # 10-30',
+            'referencia_direccion': 'Frente al parque',
+            'latitud': '4.612000',
+            'longitud': '-74.080000',
+            'fecha_nacimiento': '1995-06-15',
+        }, format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+
+        cliente = Cliente.objects.get(credencial__usuario=self.customer)
+        self.customer.refresh_from_db()
+        self.assertEqual(cliente.correo_cliente, 'nuevo-cliente@example.org')
+        self.assertEqual(cliente.nombres, 'Andrea')
+        self.assertEqual(cliente.direccion_residencia, 'Carrera 20 # 10-30')
+        self.assertEqual(self.customer.username, 'nuevo-cliente@example.org')
+        self.assertEqual(self.customer.first_name, 'Andrea')
+
+    def test_customer_profile_rejects_duplicate_email_and_document(self):
+        other = User.objects.create_user('otro@example.org', 'otro@example.org', 'ClavePrueba-489!')
+        Cliente.objects.create(tipo_documento='CC', numero_documento='999', nombres='Otro',
+            apellidos='Usuario', correo_cliente='otro@example.org', fecha_nacimiento='2000-01-01')
+        self.api.force_authenticate(self.customer)
+
+        duplicate_email = self.api.patch('/api/me/', {
+            'email': 'otro@example.org',
+            'nombres': 'Cliente',
+            'apellidos': 'Prueba',
+            'tipo_documento': 'CC',
+            'numero_documento': '123',
+            'fecha_nacimiento': '2000-01-01',
+        }, format='json')
+        self.assertEqual(duplicate_email.status_code, 400)
+        self.assertIn('email', duplicate_email.data)
+
+        duplicate_document = self.api.patch('/api/me/', {
+            'email': 'cliente@example.org',
+            'nombres': 'Cliente',
+            'apellidos': 'Prueba',
+            'tipo_documento': 'CC',
+            'numero_documento': '999',
+            'fecha_nacimiento': '2000-01-01',
+        }, format='json')
+        self.assertEqual(duplicate_document.status_code, 400)
+        self.assertIn('numero_documento', duplicate_document.data)
+
+    def test_customer_document_is_immutable_and_password_can_change(self):
+        self.api.force_authenticate(self.customer)
+        original = {
+            'email': 'cliente@example.org',
+            'nombres': 'Cliente',
+            'apellidos': 'Prueba',
+            'tipo_documento': 'CE',
+            'numero_documento': '123',
+            'fecha_nacimiento': '2000-01-01',
+        }
+        response = self.api.patch('/api/me/', original, format='json')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('tipo_documento', response.data)
+
+        wrong = self.api.post('/api/auth/password-change/', {
+            'current_password': 'incorrecta',
+            'new_password': 'OtraClaveSegura-682!',
+            'confirm_password': 'OtraClaveSegura-682!',
+        }, format='json')
+        self.assertEqual(wrong.status_code, 400)
+
+        changed = self.api.post('/api/auth/password-change/', {
+            'current_password': 'ClavePrueba-489!',
+            'new_password': 'OtraClaveSegura-682!',
+            'confirm_password': 'OtraClaveSegura-682!',
+        }, format='json')
+        self.assertEqual(changed.status_code, 200)
+        self.customer.refresh_from_db()
+        self.assertTrue(self.customer.check_password('OtraClaveSegura-682!'))
+
     def test_wrong_credentials(self):
         self.assertEqual(APIClient().post('/api/auth/token/', {'username': 'operador', 'password': 'bad'}, format='json').status_code, 401)
 

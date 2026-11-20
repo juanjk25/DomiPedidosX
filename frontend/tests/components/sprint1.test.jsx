@@ -8,6 +8,7 @@ import RestablecerContrasena from '../../src/pages/RestablecerContrasena.jsx'
 import ProductoForm from '../../src/components/ProductoForm.jsx'
 import GestionMenu from '../../src/pages/GestionMenu.jsx'
 import MenuPromociones from '../../src/pages/MenuPromociones.jsx'
+import MiCuenta from '../../src/pages/MiCuenta.jsx'
 import { api, clearSession, saveTokens } from '../../src/api.js'
 vi.mock('../../src/api.js', () => ({ api: vi.fn(), clearSession: vi.fn(), saveTokens: vi.fn() }))
 const branches = [{ id_sede: 1, nombre_sede: 'Centro' }]
@@ -107,6 +108,26 @@ describe('A6 recuperación', () => {
     expect(screen.queryByRole('button', { name: 'Guardar nueva contraseña' })).not.toBeInTheDocument()
   })
 })
+describe('Mi cuenta', () => {
+  it('muestra los campos de cambiar contraseña y mantiene el documento en solo lectura', async () => {
+    api.mockResolvedValue({
+      email: 'cliente@example.org',
+      nombres: 'Cliente',
+      apellidos: 'Prueba',
+      tipo_documento: 'CC',
+      numero_documento: '123',
+      fecha_nacimiento: '2000-01-01',
+    })
+    render(<MiCuenta user={{}} onUpdated={vi.fn()} onBack={vi.fn()} onLogout={vi.fn()} />)
+
+    expect(await screen.findByRole('group', { name: 'Cambiar contraseña' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Contraseña actual')).toBeInTheDocument()
+    expect(screen.getByLabelText('Nueva contraseña')).toBeInTheDocument()
+    expect(screen.getByLabelText('Confirmar nueva contraseña')).toBeInTheDocument()
+    expect(await screen.findByLabelText('Tipo de documento')).toBeDisabled()
+  })
+})
+
 describe('B5 B6 formulario de producto', () => {
   it('solo permite seleccionar categorías de la sede elegida', async () => {
     const other = { id: 3, nombre: 'Categoría de Norte', sede: 2, activo: true }

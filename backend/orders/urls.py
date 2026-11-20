@@ -10,6 +10,7 @@ from .views import (
     RegisterView,
     PasswordResetRequestView,
     PasswordResetConfirmView,
+    PasswordChangeView,
     TeamMemberStatusView,
     CustomTokenObtainPairView,
 )
@@ -32,6 +33,7 @@ urlpatterns = [
     path("auth/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("auth/password-reset/", PasswordResetRequestView.as_view(), name="password-reset-request"),
     path("auth/password-reset/confirm/", PasswordResetConfirmView.as_view(), name="password-reset-confirm"),
+    path("auth/password-change/", PasswordChangeView.as_view(), name="password-change"),
     path("me/", MeView.as_view(), name="me"),
     path("customers/", CustomerListView.as_view(), name="customers"),
     path("branches/", BranchListView.as_view(), name="branches"),
