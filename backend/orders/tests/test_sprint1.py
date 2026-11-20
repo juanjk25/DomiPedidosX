@@ -181,10 +181,66 @@ class Sprint1Tests(TestCase):
         self.assertEqual(public, [{'id': self.category.pk, 'nombre': 'Comida', 'descripcion': 'Comidas de Centro', 'sede': self.branch.pk, 'activo': True}])
         self.assertEqual(len(self.api.get('/api/management/categories/').data), 2)
 
+    def test_category_crud_create_edit_and_delete(self):
+        created = self.api.post('/api/management/categories/', {
+            'nombre': 'Bebidas',
+            'descripcion': 'Jugos y gaseosas',
+            'sede': self.branch.pk,
+            'activo': True,
+        }, format='json')
+        self.assertEqual(created.status_code, 201, created.data)
+        category_id = created.data['id']
+
+        edited = self.api.patch(f'/api/management/categories/{category_id}/', {
+            'nombre': 'Bebidas frías',
+            'descripcion': 'Refrescos helados',
+        }, format='json')
+        self.assertEqual(edited.status_code, 200, edited.data)
+        category = Categoria.objects.get(pk=category_id)
+        self.assertEqual(category.nombre, 'Bebidas frías')
+        self.assertEqual(category.descripcion, 'Refrescos helados')
+
+        deleted = self.api.delete(f'/api/management/categories/{category_id}/')
+        self.assertEqual(deleted.status_code, 204)
+        self.assertFalse(Categoria.objects.filter(pk=category_id).exists())
+
+    def test_category_requires_name_description_and_cannot_delete_with_products(self):
+        missing = self.api.post('/api/management/categories/', {
+            'nombre': ' ',
+            'descripcion': '',
+            'sede': self.branch.pk,
+        }, format='json')
+        self.assertEqual(missing.status_code, 400)
+        self.assertIn('nombre', missing.data)
+        self.assertIn('descripcion', missing.data)
+
+        protected = self.api.delete(f'/api/management/categories/{self.category.pk}/')
+        self.assertEqual(protected.status_code, 400)
+        self.assertIn('producto', str(protected.data).lower())
+
     def test_inactive_category_hides_its_products(self):
         self.category.activo = False; self.category.save()
         self.assertEqual(APIClient().get(f'/api/products/?sede={self.branch.pk}').data, [])
         self.assertEqual(len(APIClient().get(f'/api/products/?sede={self.other.pk}').data), 1)
+
+    def test_deactivating_category_deactivates_all_related_products(self):
+        self.api.force_authenticate(self.admin)
+        response = self.api.patch(f'/api/management/categories/{self.category.pk}/', {
+            'activo': False,
+        }, format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+        self.product.refresh_from_db()
+        self.assertFalse(self.product.activo)
+
+        public = APIClient().get(f'/api/products/?sede={self.branch.pk}')
+        self.assertEqual(public.data, [])
+
+        reactivate_category = self.api.patch(f'/api/management/categories/{self.category.pk}/', {
+            'activo': True,
+        }, format='json')
+        self.assertEqual(reactivate_category.status_code, 200)
+        self.product.refresh_from_db()
+        self.assertFalse(self.product.activo)
 
     def test_filters_and_invalid_branch(self):
         public = APIClient()

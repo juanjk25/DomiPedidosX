@@ -17,7 +17,8 @@ from .views import (
 
 from .catalog_views import (
     PublicCategoryListView, PublicProductListView, ManagedProductListView,
-    ManagedProductDetailView, ManagedCategoryListView, ManagedBranchListView,
+    ManagedProductDetailView, ManagedCategoryListView, ManagedCategoryDetailView,
+    ManagedBranchListView,
 )
 
 urlpatterns = [
@@ -26,6 +27,7 @@ urlpatterns = [
     path("management/products/", ManagedProductListView.as_view(), name="managed-products"),
     path("management/products/<int:pk>/", ManagedProductDetailView.as_view(), name="managed-product"),
     path("management/categories/", ManagedCategoryListView.as_view(), name="managed-categories"),
+    path("management/categories/<int:pk>/", ManagedCategoryDetailView.as_view(), name="managed-category"),
     path("management/branches/", ManagedBranchListView.as_view(), name="managed-branches"),
     path("auth/register/", RegisterView.as_view(), name="register"),
     path("usuarios/", RegisterView.as_view(), name="customer-register"),
