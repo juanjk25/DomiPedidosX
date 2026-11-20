@@ -49,7 +49,10 @@ export default function MiCuenta({ user, onUpdated, onBack, onLogout }) {
 
   function change(event) {
     const { name, value } = event.target
-    setForm(current => ({ ...current, [name]: value }))
+    const nextValue = ['nombres', 'apellidos'].includes(name)
+      ? value.replace(/[^\p{L} ]/gu, '')
+      : value
+    setForm(current => ({ ...current, [name]: nextValue }))
   }
 
   async function guardar(event) {

@@ -2,6 +2,8 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
+from datetime import date
+import re
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from .models import Cliente, CredencialCliente, Sede, Producto, Pedido, DetallePedido
@@ -51,6 +53,26 @@ class RegisterSerializer(serializers.Serializer):
         allow_null=True,
     )
     fecha_nacimiento = serializers.DateField()
+
+    def validate_nombres(self, value):
+        value = value.strip()
+        if not re.fullmatch(r"[^\d\W]+(?: [^\d\W]+)*", value, re.UNICODE):
+            raise serializers.ValidationError("Los nombres solo pueden contener letras.")
+        return value
+
+    def validate_apellidos(self, value):
+        value = value.strip()
+        if not re.fullmatch(r"[^\d\W]+(?: [^\d\W]+)*", value, re.UNICODE):
+            raise serializers.ValidationError("Los apellidos solo pueden contener letras.")
+        return value
+
+    def validate_fecha_nacimiento(self, value):
+        today = date.today()
+        if value < date(1930, 1, 1):
+            raise serializers.ValidationError("La fecha de nacimiento debe ser desde 1930.")
+        if value > today:
+            raise serializers.ValidationError("La fecha de nacimiento no puede ser futura.")
+        return value
 
     def validate_email(self, value):
         value = value.strip().lower()
@@ -311,6 +333,26 @@ class CustomerProfileUpdateSerializer(serializers.Serializer):
         allow_null=True,
     )
     fecha_nacimiento = serializers.DateField()
+
+    def validate_nombres(self, value):
+        value = value.strip()
+        if not re.fullmatch(r"[^\d\W]+(?: [^\d\W]+)*", value, re.UNICODE):
+            raise serializers.ValidationError("Los nombres solo pueden contener letras.")
+        return value
+
+    def validate_apellidos(self, value):
+        value = value.strip()
+        if not re.fullmatch(r"[^\d\W]+(?: [^\d\W]+)*", value, re.UNICODE):
+            raise serializers.ValidationError("Los apellidos solo pueden contener letras.")
+        return value
+
+    def validate_fecha_nacimiento(self, value):
+        today = date.today()
+        if value < date(1930, 1, 1):
+            raise serializers.ValidationError("La fecha de nacimiento debe ser desde 1930.")
+        if value > today:
+            raise serializers.ValidationError("La fecha de nacimiento no puede ser futura.")
+        return value
 
     def validate_email(self, value):
         value = value.strip().lower()
