@@ -12,14 +12,17 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
-from .models import Cliente, Sede, Pedido
+from .models import Cliente, Sede, Pedido, Producto, Categoria
 from .permissions import role_of, branch_of, IsAdministrator, IsOrderManager
 from .serializers import (
     RegisterSerializer,
     PasswordResetRequestSerializer,
     PasswordResetConfirmSerializer,
     TeamMemberStatusSerializer,
+    TeamMemberSerializer,
+    TeamMemberCreateSerializer,
     SedeSerializer,
+    SedeHorarioSerializer,
     PedidoSerializer,
     PedidoCreateSerializer,
     CustomerProfileUpdateSerializer,
@@ -228,6 +231,16 @@ class BranchListView(generics.ListAPIView):
     queryset = Sede.objects.all()
 
 
+class SedeHorarioView(generics.RetrieveUpdateAPIView):
+    queryset = Sede.objects.all()
+    serializer_class = SedeHorarioSerializer
+
+    def get_permissions(self):
+        if self.request.method in permissions.SAFE_METHODS:
+            return [permissions.AllowAny()]
+        return [permissions.IsAuthenticated(), IsOrderManager()]
+
+
 class OrderListCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
@@ -307,6 +320,22 @@ class CustomerListView(APIView):
             for c in clientes
         ]
         return Response(data)
+
+
+class TeamMemberListCreateView(APIView):
+    permission_classes = [permissions.IsAdminUser]
+
+    def get(self, request):
+        workers = User.objects.filter(is_staff=True).order_by("-date_joined")
+        return Response(TeamMemberSerializer(workers, many=True).data)
+
+    def post(self, request):
+        serializer = TeamMemberCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        return Response(
+            TeamMemberSerializer(serializer.save()).data,
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class TeamMemberStatusView(APIView):

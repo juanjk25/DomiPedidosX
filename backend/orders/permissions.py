@@ -1,5 +1,5 @@
 from rest_framework.permissions import BasePermission
-from .models import CredencialCliente, PerfilPersonal
+from .models import CredencialCliente, PerfilPersonal, PerfilTrabajador
 
 def role_of(user):
     if not user or not user.is_authenticated or not user.is_active:
@@ -10,7 +10,16 @@ def role_of(user):
         try:
             return user.perfil_personal.rol
         except PerfilPersonal.DoesNotExist:
-            return None
+            try:
+                role = user.perfil_trabajador.rol
+            except PerfilTrabajador.DoesNotExist:
+                return None
+            return {
+                "operador_sede": "operator",
+                "cocina": "kitchen",
+                "repartidor": "courier",
+                "administrador": "admin",
+            }.get(role, role)
     try:
         user.cliente_credencial
     except CredencialCliente.DoesNotExist:
@@ -21,7 +30,10 @@ def branch_of(user):
     try:
         return user.perfil_personal.sede_id
     except (PerfilPersonal.DoesNotExist, AttributeError):
-        return None
+        try:
+            return user.perfil_trabajador.sede_id
+        except (PerfilTrabajador.DoesNotExist, AttributeError):
+            return None
 
 class IsStaffRole(BasePermission):
     allowed_roles = {"operator", "kitchen", "courier", "admin"}

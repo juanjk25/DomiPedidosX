@@ -97,7 +97,7 @@ class Sede(models.Model):
 
 class Categoria(models.Model):
     nombre = models.CharField(max_length=50)
-    descripcion = models.CharField(max_length=500, blank=True)
+    descripcion = models.CharField(max_length=500, blank=True, null=True)
     # NULL conserva categorías antiguas aún pendientes de asignación.
     sede = models.ForeignKey(Sede, on_delete=models.PROTECT, null=True, blank=True)
     activo = models.BooleanField(default=True)
@@ -109,6 +109,32 @@ class Categoria(models.Model):
 
     def __str__(self):
         return self.nombre
+
+
+class PerfilTrabajador(models.Model):
+    class Rol(models.TextChoices):
+        OPERADOR = "operador_sede", "Operador de sede"
+        COCINA = "cocina", "Cocina"
+        REPARTIDOR = "repartidor", "Repartidor"
+        ADMINISTRADOR = "administrador", "Administrador"
+
+    usuario = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="perfil_trabajador",
+    )
+    rol = models.CharField(max_length=20, choices=Rol.choices)
+    sede = models.ForeignKey(
+        Sede,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="trabajadores",
+    )
+    telefono = models.CharField(max_length=20, blank=True)
+
+    class Meta:
+        db_table = "perfil_trabajador"
 
 
 class PerfilPersonal(models.Model):
@@ -186,6 +212,18 @@ class Empleado(models.Model):
 
     class Meta:
         db_table = "empleados"
+
+
+class CredencialEmpleado(models.Model):
+    empleado = models.OneToOneField(Empleado, on_delete=models.CASCADE, related_name="credencial")
+    usuario = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="empleado_credencial",
+    )
+
+    class Meta:
+        db_table = "empleado_credencial"
 
 
 class Administrador(models.Model):

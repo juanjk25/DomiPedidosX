@@ -6,8 +6,11 @@ from datetime import date
 import re
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from .models import Cliente, CredencialCliente, Sede, Producto, Pedido, DetallePedido
+
+from .models import Cliente, CredencialCliente, Sede, Producto, Pedido, DetallePedido, PerfilTrabajador, Categoria, CredencialEmpleado
+
 from .permissions import role_of, branch_of
+
 
 User = get_user_model()
 
@@ -154,6 +157,39 @@ class SedeSerializer(serializers.ModelSerializer):
         ]
 
 
+class SedeHorarioSerializer(serializers.ModelSerializer):
+    esta_abierta = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Sede
+        fields = [
+            "id_sede",
+            "nombre_sede",
+            "horario_atencion_apertura",
+            "horario_atencion_cierre",
+            "esta_abierta",
+        ]
+        read_only_fields = ["id_sede", "nombre_sede", "esta_abierta"]
+
+    def get_esta_abierta(self, obj):
+        return obj.esta_en_horario()
+
+    def validate(self, data):
+        apertura = data.get(
+            "horario_atencion_apertura",
+            getattr(self.instance, "horario_atencion_apertura", None),
+        )
+        cierre = data.get(
+            "horario_atencion_cierre",
+            getattr(self.instance, "horario_atencion_cierre", None),
+        )
+        if apertura and cierre and apertura >= cierre:
+            raise serializers.ValidationError(
+                {"horario_atencion_cierre": "La hora de cierre debe ser posterior a la hora de apertura."}
+            )
+        return data
+
+
 class DetallePedidoSerializer(serializers.ModelSerializer):
     class Meta:
         model = DetallePedido
@@ -269,6 +305,7 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
     uid = serializers.CharField()
     token = serializers.CharField()
     new_password = serializers.CharField(write_only=True, min_length=8)
+
 
 class TeamMemberStatusSerializer(serializers.Serializer):
     is_active = serializers.BooleanField()
@@ -428,6 +465,69 @@ class CustomerProfileUpdateSerializer(serializers.Serializer):
         user.last_name = cliente.apellidos
         user.save(update_fields=["email", "username", "first_name", "last_name"])
         return cliente
+
+
+class TeamMemberSerializer(serializers.ModelSerializer):
+    rol = serializers.CharField(source="perfil_trabajador.rol", default="sin_rol")
+    rol_display = serializers.CharField(
+        source="perfil_trabajador.get_rol_display", default="Sin rol"
+    )
+    sede_id = serializers.IntegerField(
+        source="perfil_trabajador.sede.id_sede", default=None, allow_null=True
+    )
+    sede_nombre = serializers.CharField(
+        source="perfil_trabajador.sede.nombre_sede", default=None, allow_null=True
+    )
+    telefono = serializers.CharField(source="perfil_trabajador.telefono", default="")
+
+    class Meta:
+        model = User
+        fields = [
+            "id", "username", "email", "first_name", "last_name",
+            "rol", "rol_display", "sede_id", "sede_nombre", "telefono", "is_active",
+        ]
+
+
+class TeamMemberCreateSerializer(serializers.Serializer):
+    username = serializers.CharField(max_length=150)
+    email = serializers.EmailField(max_length=254)
+    first_name = serializers.CharField(max_length=150)
+    last_name = serializers.CharField(max_length=150)
+    password = serializers.CharField(write_only=True, min_length=8)
+    rol = serializers.ChoiceField(choices=PerfilTrabajador.Rol.choices)
+    sede_id = serializers.IntegerField(required=False, allow_null=True)
+    telefono = serializers.CharField(max_length=20, required=False, allow_blank=True)
+
+    def validate_email(self, value):
+        if User.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError("Ya existe una cuenta registrada con este correo electrónico.")
+        return value.lower()
+
+    def validate_username(self, value):
+        if User.objects.filter(username__iexact=value).exists():
+            raise serializers.ValidationError("Ya existe una cuenta con este nombre de usuario.")
+        return value
+
+    def validate_sede_id(self, value):
+        if value is not None and not Sede.objects.filter(id_sede=value).exists():
+            raise serializers.ValidationError("La sede especificada no existe.")
+        return value
+
+    def create(self, validated_data):
+        rol = validated_data.pop("rol")
+        sede_id = validated_data.pop("sede_id", None)
+        telefono = validated_data.pop("telefono", "")
+        password = validated_data.pop("password")
+        with transaction.atomic():
+            user = User.objects.create(
+                **validated_data, is_staff=True, is_active=True
+            )
+            user.set_password(password)
+            user.save(update_fields=["password"])
+            PerfilTrabajador.objects.create(
+                usuario=user, rol=rol, sede_id=sede_id, telefono=telefono
+            )
+        return user
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):

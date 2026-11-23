@@ -3,6 +3,7 @@ from rest_framework_simplejwt.views import TokenRefreshView
 from .views import (
     BranchListView,
     CustomerListView,
+    SedeHorarioView,
     MeView,
     OrderListCreateView,
     CustomerOrderCancelView,
@@ -12,6 +13,7 @@ from .views import (
     PasswordResetConfirmView,
     PasswordChangeView,
     TeamMemberStatusView,
+    TeamMemberListCreateView,
     CustomTokenObtainPairView,
 )
 
@@ -39,10 +41,12 @@ urlpatterns = [
     path("me/", MeView.as_view(), name="me"),
     path("customers/", CustomerListView.as_view(), name="customers"),
     path("branches/", BranchListView.as_view(), name="branches"),
+    path("branches/<int:pk>/horario/", SedeHorarioView.as_view(), name="branch-schedule"),
     path("categories/", PublicCategoryListView.as_view(), name="categories"),
     path("products/", PublicProductListView.as_view(), name="products"),
     path("orders/", OrderListCreateView.as_view(), name="orders"),
     path("orders/<int:pk>/cancel/", CustomerOrderCancelView.as_view(), name="order-cancel"),
     path("orders/<int:pk>/status/", OrderStatusView.as_view(), name="order-status"),
+    path("team-members/", TeamMemberListCreateView.as_view(), name="team-members"),
     path("team-members/<int:pk>/status/", TeamMemberStatusView.as_view(), name="team-member-status"),
 ]

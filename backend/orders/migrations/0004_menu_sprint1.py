@@ -25,13 +25,18 @@ def prepare_categories(apps, schema_editor):
             column.name
             for column in connection.introspection.get_table_description(cursor, "categorias")
         }
+        if "id_categoria" in columns and "id" not in columns:
+            schema_editor.execute('ALTER TABLE categorias RENAME COLUMN "id_categoria" TO "id"')
+        if "activa" in columns and "activo" not in columns:
+            schema_editor.execute('ALTER TABLE categorias RENAME COLUMN "activa" TO "activo"')
         if "name" in columns and "nombre" not in columns:
             schema_editor.execute('ALTER TABLE categorias RENAME COLUMN "name" TO "nombre"')
         if "is_active" in columns and "activo" not in columns:
             schema_editor.execute('ALTER TABLE categorias RENAME COLUMN "is_active" TO "activo"')
         if "description" in columns and "descripcion" not in columns:
             schema_editor.execute('ALTER TABLE categorias RENAME COLUMN "description" TO "descripcion"')
-        if "descripcion" in columns or "description" in columns:
+        if (("descripcion" in columns or "description" in columns)
+                and connection.vendor == "postgresql"):
             schema_editor.execute("ALTER TABLE categorias ALTER COLUMN descripcion SET DEFAULT ''")
 
 
@@ -48,17 +53,29 @@ class Migration(migrations.Migration):
                 migrations.RunPython(prepare_categories, migrations.RunPython.noop),
             ],
             state_operations=[
-                migrations.CreateModel(
-                    name='Categoria',
-                    fields=[
-                        ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
-                        ('nombre', models.CharField(max_length=50, unique=True)),
-                        ('activo', models.BooleanField(default=True)),
-                    ],
-                    options={
-                        'db_table': 'categorias',
-                        'ordering': ['nombre'],
-                    },
+                migrations.RenameField(
+                    model_name="categoria",
+                    old_name="id_categoria",
+                    new_name="id",
+                ),
+                migrations.RenameField(
+                    model_name="categoria",
+                    old_name="activa",
+                    new_name="activo",
+                ),
+                migrations.AlterField(
+                    model_name="categoria",
+                    name="id",
+                    field=models.BigAutoField(
+                        auto_created=True,
+                        primary_key=True,
+                        serialize=False,
+                        verbose_name="ID",
+                    ),
+                ),
+                migrations.AlterModelOptions(
+                    name="categoria",
+                    options={"ordering": ["nombre"]},
                 ),
             ],
         ),

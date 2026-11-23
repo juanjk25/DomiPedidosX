@@ -12,7 +12,7 @@ def add_description_column(apps, schema_editor):
         }
     if 'descripcion' not in columns:
         schema_editor.execute(
-            'ALTER TABLE categorias ADD COLUMN descripcion VARCHAR(500) NOT NULL DEFAULT \'\''
+            'ALTER TABLE categorias ADD COLUMN descripcion VARCHAR(500)'
         )
 
 
@@ -61,7 +61,7 @@ class Migration(migrations.Migration):
                 migrations.AddField(
                     model_name='categoria',
                     name='descripcion',
-                    field=models.CharField(blank=True, max_length=500),
+                    field=models.CharField(blank=True, max_length=500, null=True),
                 ),
             ],
         ),
