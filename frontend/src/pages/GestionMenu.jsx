@@ -3,6 +3,7 @@ import { api } from '../api.js'
 import ProductoForm from '../components/ProductoForm.jsx'
 import ConfirmarDesactivacion from '../components/ConfirmarDesactivacion.jsx'
 import ImagenProducto from '../components/ImagenProducto.jsx'
+import CategoriaForm from '../components/CategoriaForm.jsx'
 import { announceMenuChange, money, visibleProducts } from '../utils/productos.js'
 
 export default function GestionMenu({ onPreview, onLogout }) {
@@ -11,6 +12,9 @@ export default function GestionMenu({ onPreview, onLogout }) {
   const [editor, setEditor] = useState(null), [target, setTarget] = useState(null), [busy, setBusy] = useState(false)
   const [loading, setLoading] = useState(true), [error, setError] = useState(''), [actionError, setActionError] = useState(''), [notice, setNotice] = useState(''), [revision, setRevision] = useState(0)
   const [metadataError, setMetadataError] = useState('')
+  const [categoryEditor, setCategoryEditor] = useState(null)
+  const [categoryTarget, setCategoryTarget] = useState(null)
+  const [categoryBusy, setCategoryBusy] = useState(false)
   useEffect(() => {
     const controller = new AbortController()
     setMetadataError('')
@@ -29,6 +33,16 @@ export default function GestionMenu({ onPreview, onLogout }) {
   }, [branch, revision])
   const filtered = useMemo(() => visibleProducts(products, query, status), [products, query, status])
   function saved(message) { setEditor(null); setNotice(message); setRevision(x => x + 1); announceMenuChange() }
+  function categorySaved(savedCategory, message) {
+    setCategories(old => savedCategory?.id
+      ? old.some(category => category.id === savedCategory.id)
+        ? old.map(category => category.id === savedCategory.id ? savedCategory : category)
+        : [...old, savedCategory]
+      : old)
+    setCategoryEditor(null)
+    setNotice(message)
+    setRevision(x => x + 1)
+  }
   async function deactivate() {
     if (busy) return
     setBusy(true); setActionError('')
@@ -38,15 +52,42 @@ export default function GestionMenu({ onPreview, onLogout }) {
     } catch (err) { setActionError(err.message) }
     finally { setBusy(false) }
   }
+  async function deleteCategory() {
+    if (categoryBusy) return
+    setCategoryBusy(true); setActionError('')
+    try {
+      await api(`/management/categories/${categoryTarget.id}/`, { method: 'DELETE' })
+      setCategoryTarget(null); setCategoryBusy(false)
+      saved('Categoría eliminada.')
+    } catch (err) {
+      setActionError(err.message)
+      setCategoryBusy(false)
+    }
+  }
   return <section className="management-page">
     <header className="management-header"><div className="menu-sidebar-brand"><span className="brand-mark">D</span>DomiPedidos<span className="brand-x">X</span></div><nav aria-label="Menú de operador"><button onClick={onPreview}>Ver menú del cliente</button><button onClick={onLogout}>Cerrar sesión</button></nav></header>
-    <main className="management-main"><div className="management-title"><div><span className="login-kicker">OPERACIÓN DE SEDE</span><h1>Gestionar menú</h1><p>Organiza tus productos y decide qué ve el cliente.</p></div>{!editor && <button className="primary-button" disabled={!branch || !!metadataError} onClick={() => { setNotice(''); setEditor({}) }}>＋ Crear producto</button>}</div>
+    <main className="management-main"><div className="management-title"><div><span className="login-kicker">OPERACIÓN DE SEDE</span><h1>Gestionar menú</h1><p>Organiza tus categorías y productos.</p></div>{!editor && !categoryEditor && <div className="management-create-actions"><button className="secondary-button" disabled={!branch || !!metadataError} onClick={() => { setNotice(''); setCategoryEditor({}) }}>＋ Crear categoría</button><button className="primary-button" disabled={!branch || !!metadataError} onClick={() => { setNotice(''); setEditor({}) }}>＋ Crear producto</button></div>}</div>
       {notice && <p className="status-message" role="status">{notice}</p>}
       {(error || metadataError) && <p className="error-message" role="alert">{error || metadataError} <button className="inline-link" onClick={() => setRevision(x => x + 1)}>Reintentar</button></p>}
-      {editor ? <ProductoForm key={editor.id_producto || 'new'} product={editor.id_producto ? editor : null} categories={categories} branches={branches} branchId={branch} onSaved={saved} onCancel={() => setEditor(null)} />
+      {categoryEditor ? <CategoriaForm key={categoryEditor.id || 'new-category'} category={categoryEditor.id ? categoryEditor : null} branches={branches} branchId={branch} onSaved={categorySaved} onCancel={() => setCategoryEditor(null)} />
+        : editor ? <ProductoForm key={editor.id_producto || 'new'} product={editor.id_producto ? editor : null} categories={categories} branches={branches} branchId={branch} onSaved={saved} onCancel={() => setEditor(null)} />
         : <>
           <div className="management-stats"><div><strong>{products.length}</strong><span>Productos</span></div><div><strong>{products.filter(p => p.activo).length}</strong><span>Activos</span></div><div><strong>{products.filter(p => !p.activo).length}</strong><span>Inactivos</span></div></div>
           <div className="management-filters"><label>Sede<select value={branch ?? ''} onChange={e => { setBranch(e.target.value); setNotice('') }}><option value="">Todas las sedes</option>{branches.map(b => <option key={b.id_sede} value={b.id_sede}>{b.nombre_sede}</option>)}</select></label><label>Buscar producto<input value={query} onChange={e => setQuery(e.target.value)} placeholder="Nombre del producto" /></label><label>Estado<select value={status} onChange={e => setStatus(e.target.value)}><option value="all">Todos</option><option value="active">Activos</option><option value="inactive">Inactivos</option></select></label></div>
+          <section className="category-management" aria-labelledby="category-management-title">
+            <div className="category-management-heading"><div><span className="login-kicker">CATEGORÍAS</span><h2 id="category-management-title">Organiza tus productos</h2></div></div>
+            <div className="category-management-grid">
+              {categories.filter(category => !branch || String(category.sede) === String(branch)).map(category => {
+                const productCount = products.filter(product => String(product.categoria) === String(category.id)).length
+                return <article className="category-card" key={category.id}>
+                  <div className="category-card-heading"><div><h3>{category.nombre}</h3><span className={`status-pill ${category.activo ? 'active' : 'inactive'}`}>{category.activo ? 'Activa' : 'Inactiva'}</span></div><strong>{productCount} {productCount === 1 ? 'producto' : 'productos'}</strong></div>
+                  <p>{category.descripcion || 'Sin descripción.'}</p>
+                  <div className="product-actions"><button className="secondary-button" onClick={() => { setNotice(''); setCategoryEditor(category) }}>Editar</button><button className="danger-link" onClick={() => { setActionError(''); setCategoryTarget(category) }}>Eliminar</button></div>
+                </article>
+              })}
+              {!categories.filter(category => !branch || String(category.sede) === String(branch)).length && <div className="category-empty">No hay categorías en esta sede. Crea la primera.</div>}
+            </div>
+          </section>
           {loading ? <p role="status">Cargando productos…</p> : <>
             <p className="result-count">{filtered.length} productos encontrados</p>
             {!filtered.length && <div className="empty-state"><h2>No hay productos para mostrar</h2><p>Crea un producto o cambia los filtros.</p></div>}
@@ -62,5 +103,6 @@ export default function GestionMenu({ onPreview, onLogout }) {
         </>}
     </main>
     {target && <ConfirmarDesactivacion product={target} busy={busy} error={actionError} onConfirm={deactivate} onCancel={() => setTarget(null)} />}
+    {categoryTarget && <div className="category-delete-backdrop" role="presentation"><section className="category-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-category-title"><span className="login-kicker">ELIMINAR CATEGORÍA</span><h2 id="delete-category-title">{categoryTarget.nombre}</h2><p>Esta acción eliminará la categoría. Solo podrás continuar si no tiene productos asociados.</p>{actionError && <p className="error-message" role="alert">{actionError}</p>}<div className="form-actions"><button className="secondary-button" onClick={() => setCategoryTarget(null)} disabled={categoryBusy}>Cancelar</button><button className="danger-link" onClick={deleteCategory} disabled={categoryBusy}>{categoryBusy ? 'Eliminando…' : 'Eliminar categoría'}</button></div></section></div>}
   </section>
 }

@@ -65,7 +65,7 @@ class PublicProductListView(generics.ListAPIView):
         return qs.order_by("nombre_producto", "id_producto")
 
 
-class ManagedCategoryListView(generics.ListAPIView):
+class ManagedCategoryListView(generics.ListCreateAPIView):
     permission_classes = [IsOrderManager]
     serializer_class = CategorySerializer
     def get_queryset(self):
@@ -74,6 +74,30 @@ class ManagedCategoryListView(generics.ListAPIView):
             qs = qs.filter(sede_id=branch_of(self.request.user))
         branch = branch_param(self.request)
         return qs.filter(sede_id=branch) if branch else qs
+
+
+class ManagedCategoryDetailView(generics.RetrieveUpdateDestroyAPIView):
+    permission_classes = [IsOrderManager]
+    serializer_class = CategorySerializer
+
+    def get_queryset(self):
+        qs = Categoria.objects.all()
+        if role_of(self.request.user) == "operator":
+            qs = qs.filter(sede_id=branch_of(self.request.user))
+        return qs
+
+    def destroy(self, request, *args, **kwargs):
+        category = self.get_object()
+        product_count = category.productos.count()
+        if product_count:
+            raise ValidationError({
+                "detail": (
+                    f"No puedes eliminar la categoría: tiene {product_count} producto"
+                    f"{'' if product_count == 1 else 's'} asociado"
+                    f"{'' if product_count == 1 else 's'}."
+                )
+            })
+        return super().destroy(request, *args, **kwargs)
 
 
 class ManagedBranchListView(generics.ListAPIView):

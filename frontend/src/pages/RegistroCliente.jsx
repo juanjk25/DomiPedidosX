@@ -41,10 +41,10 @@ const RegistroCliente = ({ form, update, error, busy, onSubmit, onBackToLogin })
         <form className="registration-form" onSubmit={handleSubmit} autoComplete="off">
           <div className="registration-fields-row">
             <label>Nombre *
-              <input name="first_name" value={form.first_name} onChange={update} placeholder="Tu nombre" required />
+              <input name="first_name" value={form.first_name} onChange={update} placeholder="Tu nombre" pattern="[A-Za-zÁÉÍÓÚÜÑáéíóúüñ ]+" title="Solo se permiten letras" required />
             </label>
             <label>Apellido *
-              <input name="last_name" value={form.last_name} onChange={update} placeholder="Tu apellido" required />
+              <input name="last_name" value={form.last_name} onChange={update} placeholder="Tu apellido" pattern="[A-Za-zÁÉÍÓÚÜÑáéíóúüñ ]+" title="Solo se permiten letras" required />
             </label>
           </div>
           <div className="registration-fields-row">
@@ -80,7 +80,7 @@ const RegistroCliente = ({ form, update, error, busy, onSubmit, onBackToLogin })
             </label>
           </div>
           <label>Fecha de nacimiento *
-            <input type="date" name="date_of_birth" value={form.date_of_birth} onChange={update} autoComplete="off" required />
+            <input type="date" name="date_of_birth" value={form.date_of_birth} onChange={update} min="1930-01-01" max={new Date().toISOString().split('T')[0]} autoComplete="off" required />
           </label>
           <p className="field-hint">Documento, teléfono y extensión: escribe solo números.</p>
           <p className="field-hint">Mínimo 8 caracteres, una mayúscula y un número.</p>

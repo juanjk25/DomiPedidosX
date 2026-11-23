@@ -8,7 +8,10 @@ export default function RegistroPanel({ onAuthenticated, navigate }) {
   const [error, setError] = useState(''), [busy, setBusy] = useState(false)
   const update = event => {
     const { name, value } = event.target
-    setForm(current => ({ ...current, [name]: ['numero_documento', 'phone', 'phone_extension'].includes(name) ? value.replace(/\D/g, '') : value }))
+    let nextValue = value
+    if (['numero_documento', 'phone', 'phone_extension'].includes(name)) nextValue = value.replace(/\D/g, '')
+    if (['first_name', 'last_name'].includes(name)) nextValue = value.replace(/[^\p{L} ]/gu, '')
+    setForm(current => ({ ...current, [name]: nextValue }))
   }
   async function submit(event) {
     event.preventDefault()

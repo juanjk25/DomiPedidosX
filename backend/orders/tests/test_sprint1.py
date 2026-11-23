@@ -181,10 +181,66 @@ class Sprint1Tests(TestCase):
         self.assertEqual(public, [{'id': self.category.pk, 'nombre': 'Comida', 'descripcion': 'Comidas de Centro', 'sede': self.branch.pk, 'activo': True}])
         self.assertEqual(len(self.api.get('/api/management/categories/').data), 2)
 
+    def test_category_crud_create_edit_and_delete(self):
+        created = self.api.post('/api/management/categories/', {
+            'nombre': 'Bebidas',
+            'descripcion': 'Jugos y gaseosas',
+            'sede': self.branch.pk,
+            'activo': True,
+        }, format='json')
+        self.assertEqual(created.status_code, 201, created.data)
+        category_id = created.data['id']
+
+        edited = self.api.patch(f'/api/management/categories/{category_id}/', {
+            'nombre': 'Bebidas frías',
+            'descripcion': 'Refrescos helados',
+        }, format='json')
+        self.assertEqual(edited.status_code, 200, edited.data)
+        category = Categoria.objects.get(pk=category_id)
+        self.assertEqual(category.nombre, 'Bebidas frías')
+        self.assertEqual(category.descripcion, 'Refrescos helados')
+
+        deleted = self.api.delete(f'/api/management/categories/{category_id}/')
+        self.assertEqual(deleted.status_code, 204)
+        self.assertFalse(Categoria.objects.filter(pk=category_id).exists())
+
+    def test_category_requires_name_description_and_cannot_delete_with_products(self):
+        missing = self.api.post('/api/management/categories/', {
+            'nombre': ' ',
+            'descripcion': '',
+            'sede': self.branch.pk,
+        }, format='json')
+        self.assertEqual(missing.status_code, 400)
+        self.assertIn('nombre', missing.data)
+        self.assertIn('descripcion', missing.data)
+
+        protected = self.api.delete(f'/api/management/categories/{self.category.pk}/')
+        self.assertEqual(protected.status_code, 400)
+        self.assertIn('producto', str(protected.data).lower())
+
     def test_inactive_category_hides_its_products(self):
         self.category.activo = False; self.category.save()
         self.assertEqual(APIClient().get(f'/api/products/?sede={self.branch.pk}').data, [])
         self.assertEqual(len(APIClient().get(f'/api/products/?sede={self.other.pk}').data), 1)
+
+    def test_deactivating_category_deactivates_all_related_products(self):
+        self.api.force_authenticate(self.admin)
+        response = self.api.patch(f'/api/management/categories/{self.category.pk}/', {
+            'activo': False,
+        }, format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+        self.product.refresh_from_db()
+        self.assertFalse(self.product.activo)
+
+        public = APIClient().get(f'/api/products/?sede={self.branch.pk}')
+        self.assertEqual(public.data, [])
+
+        reactivate_category = self.api.patch(f'/api/management/categories/{self.category.pk}/', {
+            'activo': True,
+        }, format='json')
+        self.assertEqual(reactivate_category.status_code, 200)
+        self.product.refresh_from_db()
+        self.assertFalse(self.product.activo)
 
     def test_filters_and_invalid_branch(self):
         public = APIClient()
@@ -206,8 +262,114 @@ class Sprint1Tests(TestCase):
         self.operator.is_active = False; self.operator.save()
         self.assertEqual(public.get('/api/me/').status_code, 401)
 
+    def test_customer_can_read_and_update_full_profile(self):
+        self.api.force_authenticate(self.customer)
+        profile = self.api.get('/api/me/')
+        self.assertEqual(profile.status_code, 200)
+        self.assertEqual(profile.data['email'], 'cliente@example.org')
+        self.assertEqual(profile.data['nombres'], 'Cliente')
+
+        response = self.api.patch('/api/me/', {
+            'email': 'nuevo-cliente@example.org',
+            'nombres': 'Andrea',
+            'apellidos': 'Gomez',
+            'tipo_documento': 'CC',
+            'numero_documento': '987654',
+            'telefono_cliente': '3001234567',
+            'extension_telefonica': '57',
+            'direccion_residencia': 'Carrera 20 # 10-30',
+            'referencia_direccion': 'Frente al parque',
+            'latitud': '4.612000',
+            'longitud': '-74.080000',
+            'fecha_nacimiento': '1995-06-15',
+        }, format='json')
+        self.assertEqual(response.status_code, 200, response.data)
+
+        cliente = Cliente.objects.get(credencial__usuario=self.customer)
+        self.customer.refresh_from_db()
+        self.assertEqual(cliente.correo_cliente, 'nuevo-cliente@example.org')
+        self.assertEqual(cliente.nombres, 'Andrea')
+        self.assertEqual(cliente.direccion_residencia, 'Carrera 20 # 10-30')
+        self.assertEqual(self.customer.username, 'nuevo-cliente@example.org')
+        self.assertEqual(self.customer.first_name, 'Andrea')
+
+    def test_customer_profile_rejects_duplicate_email_and_document(self):
+        other = User.objects.create_user('otro@example.org', 'otro@example.org', 'ClavePrueba-489!')
+        Cliente.objects.create(tipo_documento='CC', numero_documento='999', nombres='Otro',
+            apellidos='Usuario', correo_cliente='otro@example.org', fecha_nacimiento='2000-01-01')
+        self.api.force_authenticate(self.customer)
+
+        duplicate_email = self.api.patch('/api/me/', {
+            'email': 'otro@example.org',
+            'nombres': 'Cliente',
+            'apellidos': 'Prueba',
+            'tipo_documento': 'CC',
+            'numero_documento': '123',
+            'fecha_nacimiento': '2000-01-01',
+        }, format='json')
+        self.assertEqual(duplicate_email.status_code, 400)
+        self.assertIn('email', duplicate_email.data)
+
+        duplicate_document = self.api.patch('/api/me/', {
+            'email': 'cliente@example.org',
+            'nombres': 'Cliente',
+            'apellidos': 'Prueba',
+            'tipo_documento': 'CC',
+            'numero_documento': '999',
+            'fecha_nacimiento': '2000-01-01',
+        }, format='json')
+        self.assertEqual(duplicate_document.status_code, 400)
+        self.assertIn('numero_documento', duplicate_document.data)
+
+    def test_customer_document_is_immutable_and_password_can_change(self):
+        self.api.force_authenticate(self.customer)
+        original = {
+            'email': 'cliente@example.org',
+            'nombres': 'Cliente',
+            'apellidos': 'Prueba',
+            'tipo_documento': 'CE',
+            'numero_documento': '123',
+            'fecha_nacimiento': '2000-01-01',
+        }
+        response = self.api.patch('/api/me/', original, format='json')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('tipo_documento', response.data)
+
+        wrong = self.api.post('/api/auth/password-change/', {
+            'current_password': 'incorrecta',
+            'new_password': 'OtraClaveSegura-682!',
+            'confirm_password': 'OtraClaveSegura-682!',
+        }, format='json')
+        self.assertEqual(wrong.status_code, 400)
+
+        changed = self.api.post('/api/auth/password-change/', {
+            'current_password': 'ClavePrueba-489!',
+            'new_password': 'OtraClaveSegura-682!',
+            'confirm_password': 'OtraClaveSegura-682!',
+        }, format='json')
+        self.assertEqual(changed.status_code, 200)
+        self.customer.refresh_from_db()
+        self.assertTrue(self.customer.check_password('OtraClaveSegura-682!'))
+
     def test_wrong_credentials(self):
         self.assertEqual(APIClient().post('/api/auth/token/', {'username': 'operador', 'password': 'bad'}, format='json').status_code, 401)
+
+    def test_registration_rejects_invalid_name_and_birth_date(self):
+        public = APIClient()
+        response = public.post('/api/auth/register/', {
+            'email': 'registro@example.org',
+            'password': 'ClavePrueba-489!',
+            'nombres': 'Juan#$',
+            'apellidos': 'Perez%',
+            'tipo_documento': 'CC',
+            'numero_documento': '456789',
+            'fecha_nacimiento': '1929-01-01',
+            'direccion_residencia': 'Calle 10',
+        }, format='json')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('nombres', response.data)
+        self.assertIn('apellidos', response.data)
+        self.assertIn('fecha_nacimiento', response.data)
 
     def test_recovery_known_unknown_and_invalid_email(self):
         public = APIClient(); public.credentials(HTTP_AUTHORIZATION='Bearer expired')

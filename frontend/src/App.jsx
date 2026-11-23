@@ -7,6 +7,7 @@ import RestablecerContrasena from './pages/RestablecerContrasena.jsx'
 import GestionMenu from './pages/GestionMenu.jsx'
 import MenuPromociones from './pages/MenuPromociones.jsx'
 import InicioPersonal from './pages/InicioPersonal.jsx'
+import MiCuenta from './pages/MiCuenta.jsx'
 import { homeFor } from './utils/session.js'
 import './sprint1.css'
 
@@ -85,10 +86,11 @@ export default function App() {
   else if (restoring) content = <p className="session-loading" role="status">Recuperando sesión…</p>
   else if (!user) content = path === '/registro' ? <RegistroPanel onAuthenticated={authenticated} navigate={navigate} /> : <IniciarSesion onAuthenticated={authenticated} navigate={navigate} notice={sessionNotice} />
   else if (user.role !== 'customer' && !user.can_manage_menu) content = <InicioPersonal user={user} onLogout={logout} />
+  else if (path === '/mi-cuenta') content = <MiCuenta user={user} onUpdated={profile => { setUser(profile); setAddress(profile.direccion_residencia || '') }} onBack={() => navigate('/menu')} onLogout={logout} />
   else if (user.can_manage_menu && path !== '/menu') content = <GestionMenu onPreview={() => navigate('/menu')} onLogout={logout} />
   else content = <>
     <div className="customer-toolbar"><label>Sede<select aria-label="Sede del menú" value={branch} onChange={e => { setBranch(e.target.value); setCart({}); setProducts([]); setError('') }}><option value="" disabled>Selecciona una sede</option>{branches.map(b => <option key={b.id_sede} value={b.id_sede}>{b.nombre_sede}</option>)}</select></label>{user.can_manage_menu && <button className="secondary-button" onClick={() => navigate('/gestion-menu')}>Volver a gestionar menú</button>}<button className="secondary-button" onClick={logout}>Cerrar sesión</button></div>
-    <MenuPromociones products={products} categories={categories} cartItems={cartItems} address={address} error={error} onError={setError} onAddressChange={setAddress} onAdd={addProduct} onChangeQuantity={changeQuantity} onCheckout={checkout} onLogout={logout} checkingOut={checkingOut} branchName={branches.find(b => String(b.id_sede) === branch)?.nombre_sede} />
+    <MenuPromociones products={products} categories={categories} cartItems={cartItems} address={address} error={error} onError={setError} onAddressChange={setAddress} onAdd={addProduct} onChangeQuantity={changeQuantity} onCheckout={checkout} onLogout={logout} onAccount={() => navigate('/mi-cuenta')} checkingOut={checkingOut} branchName={branches.find(b => String(b.id_sede) === branch)?.nombre_sede} />
   </>
   return <div className="app-shell">{content}{notice && <div className="toast" role="status">✓ {notice}</div>}</div>
 }

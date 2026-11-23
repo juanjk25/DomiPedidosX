@@ -8,6 +8,8 @@ import RestablecerContrasena from '../../src/pages/RestablecerContrasena.jsx'
 import ProductoForm from '../../src/components/ProductoForm.jsx'
 import GestionMenu from '../../src/pages/GestionMenu.jsx'
 import MenuPromociones from '../../src/pages/MenuPromociones.jsx'
+import MiCuenta from '../../src/pages/MiCuenta.jsx'
+import CategoriaForm from '../../src/components/CategoriaForm.jsx'
 import { api, clearSession, saveTokens } from '../../src/api.js'
 vi.mock('../../src/api.js', () => ({ api: vi.fn(), clearSession: vi.fn(), saveTokens: vi.fn() }))
 const branches = [{ id_sede: 1, nombre_sede: 'Centro' }]
@@ -107,6 +109,66 @@ describe('A6 recuperación', () => {
     expect(screen.queryByRole('button', { name: 'Guardar nueva contraseña' })).not.toBeInTheDocument()
   })
 })
+describe('Mi cuenta', () => {
+  it('muestra los campos de cambiar contraseña y mantiene el documento en solo lectura', async () => {
+    api.mockResolvedValue({
+      email: 'cliente@example.org',
+      nombres: 'Cliente',
+      apellidos: 'Prueba',
+      tipo_documento: 'CC',
+      numero_documento: '123',
+      fecha_nacimiento: '2000-01-01',
+    })
+    render(<MiCuenta user={{}} onUpdated={vi.fn()} onBack={vi.fn()} onLogout={vi.fn()} />)
+
+    expect(await screen.findByRole('group', { name: 'Cambiar contraseña' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Contraseña actual')).toBeInTheDocument()
+    expect(screen.getByLabelText('Nueva contraseña')).toBeInTheDocument()
+    expect(screen.getByLabelText('Confirmar nueva contraseña')).toBeInTheDocument()
+    expect(await screen.findByLabelText('Tipo de documento')).toBeDisabled()
+  })
+})
+
+describe('CRUD de categorías', () => {
+  it('exige nombre y descripción y crea la categoría de la sede', async () => {
+    api.mockResolvedValue({ id: 3, nombre: 'Bebidas', descripcion: 'Jugos y gaseosas', sede: 1, activo: true })
+    const u = userEvent.setup(), saved = vi.fn()
+    render(<CategoriaForm branches={branches} branchId="1" onSaved={saved} onCancel={vi.fn()} />)
+
+    await u.click(screen.getByRole('button', { name: 'Crear categoría' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('obligatorio')
+    expect(api).not.toHaveBeenCalled()
+
+    await u.type(screen.getByLabelText(/Nombre/), 'Bebidas')
+    await u.type(screen.getByLabelText(/Descripción/), 'Jugos y gaseosas')
+    await u.click(screen.getByRole('button', { name: 'Crear categoría' }))
+    expect(api.mock.calls[0][0]).toBe('/management/categories/')
+    expect(api.mock.calls[0][1].method).toBe('POST')
+    expect(JSON.parse(api.mock.calls[0][1].body)).toMatchObject({ nombre: 'Bebidas', descripcion: 'Jugos y gaseosas', sede: 1, activo: true })
+    expect(saved).toHaveBeenCalledWith(
+      expect.objectContaining({ nombre: 'Bebidas', descripcion: 'Jugos y gaseosas', sede: 1 }),
+      'Categoría creada correctamente.',
+    )
+  })
+
+  it('edita nombre y descripción mediante PATCH', async () => {
+    api.mockResolvedValue({ id: 1, nombre: 'Comidas', descripcion: 'Platos principales', sede: 1, activo: true })
+    const u = userEvent.setup(), saved = vi.fn()
+    render(<CategoriaForm category={{ id: 1, nombre: 'Comida', descripcion: 'Comidas de Centro', sede: 1, activo: true }} branches={branches} branchId="1" onSaved={saved} onCancel={vi.fn()} />)
+    await u.clear(screen.getByLabelText(/Nombre/))
+    await u.type(screen.getByLabelText(/Nombre/), 'Comidas')
+    await u.clear(screen.getByLabelText(/Descripción/))
+    await u.type(screen.getByLabelText(/Descripción/), 'Platos principales')
+    await u.click(screen.getByRole('button', { name: 'Guardar cambios' }))
+    expect(api.mock.calls[0][0]).toBe('/management/categories/1/')
+    expect(api.mock.calls[0][1].method).toBe('PATCH')
+    expect(saved).toHaveBeenCalledWith(
+      expect.objectContaining({ nombre: 'Comidas', descripcion: 'Platos principales', sede: 1 }),
+      'Los cambios de la categoría se guardaron correctamente.',
+    )
+  })
+})
+
 describe('B5 B6 formulario de producto', () => {
   it('solo permite seleccionar categorías de la sede elegida', async () => {
     const other = { id: 3, nombre: 'Categoría de Norte', sede: 2, activo: true }

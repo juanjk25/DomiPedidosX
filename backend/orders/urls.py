@@ -11,6 +11,7 @@ from .views import (
     RegisterView,
     PasswordResetRequestView,
     PasswordResetConfirmView,
+    PasswordChangeView,
     TeamMemberStatusView,
     TeamMemberListCreateView,
     CustomTokenObtainPairView,
@@ -18,7 +19,8 @@ from .views import (
 
 from .catalog_views import (
     PublicCategoryListView, PublicProductListView, ManagedProductListView,
-    ManagedProductDetailView, ManagedCategoryListView, ManagedBranchListView,
+    ManagedProductDetailView, ManagedCategoryListView, ManagedCategoryDetailView,
+    ManagedBranchListView,
 )
 
 urlpatterns = [
@@ -27,6 +29,7 @@ urlpatterns = [
     path("management/products/", ManagedProductListView.as_view(), name="managed-products"),
     path("management/products/<int:pk>/", ManagedProductDetailView.as_view(), name="managed-product"),
     path("management/categories/", ManagedCategoryListView.as_view(), name="managed-categories"),
+    path("management/categories/<int:pk>/", ManagedCategoryDetailView.as_view(), name="managed-category"),
     path("management/branches/", ManagedBranchListView.as_view(), name="managed-branches"),
     path("auth/register/", RegisterView.as_view(), name="register"),
     path("usuarios/", RegisterView.as_view(), name="customer-register"),
@@ -34,6 +37,7 @@ urlpatterns = [
     path("auth/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("auth/password-reset/", PasswordResetRequestView.as_view(), name="password-reset-request"),
     path("auth/password-reset/confirm/", PasswordResetConfirmView.as_view(), name="password-reset-confirm"),
+    path("auth/password-change/", PasswordChangeView.as_view(), name="password-change"),
     path("me/", MeView.as_view(), name="me"),
     path("customers/", CustomerListView.as_view(), name="customers"),
     path("branches/", BranchListView.as_view(), name="branches"),
