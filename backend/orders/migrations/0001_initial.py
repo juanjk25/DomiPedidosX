@@ -166,6 +166,7 @@ class Migration(migrations.Migration):
                 ('id_producto', models.AutoField(primary_key=True, serialize=False)),
                 ('codigo_de_barras', models.CharField(max_length=30, unique=True)),
                 ('nombre_producto', models.CharField(max_length=80)),
+                ('tipo_de_producto', models.CharField(max_length=50)),
                 ('activo', models.BooleanField(default=True)),
                 ('precio_compra', models.DecimalField(decimal_places=2, max_digits=12)),
                 ('precio_venta', models.DecimalField(decimal_places=2, max_digits=12)),

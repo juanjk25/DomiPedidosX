@@ -3,6 +3,7 @@ from decimal import Decimal
 from django.core.management.base import BaseCommand
 
 from orders.models import (
+    Categoria,
     Ciudad,
     Departamento,
     Inventario,
@@ -39,10 +40,15 @@ class Command(BaseCommand):
         ]
         created = 0
         for barcode, name, product_type, price in seed:
+            category, _ = Categoria.objects.get_or_create(nombre=product_type, sede=sede, defaults={"descripcion": f"Productos de {product_type.lower()}."})
             product, was_created = Producto.objects.get_or_create(
                 codigo_de_barras=barcode,
                 defaults={
                     "nombre_producto": name,
+                    "categoria": category,
+                    "sede": sede,
+                    "tiempo_preparacion": 15 if product_type == "Comida" else 3,
+                    "imagen_url": "https://placehold.co/600x400/png?text=DomiPedidosX",
                     "tipo_de_producto": product_type,
                     "precio_compra": Decimal(price) * Decimal("0.6"),
                     "precio_venta": Decimal(price),
