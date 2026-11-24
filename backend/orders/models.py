@@ -340,3 +340,27 @@ class Factura(models.Model):
 
     class Meta:
         db_table = "factura"
+
+class AuditoriaPersonal(models.Model):
+    administrador = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="auditorias_personal_realizadas",
+    )
+    usuario_afectado = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="auditorias_personal_recibidas",
+    )
+    estado_anterior = models.BooleanField()
+    estado_nuevo = models.BooleanField()
+    motivo = models.CharField(max_length=255, blank=True, default="")
+    fecha_hora = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "auditoria_personal"
+        ordering = ["-fecha_hora"]
+
+    def __str__(self):
+        accion = "activó" if self.estado_nuevo else "desactivó"
+        return f"{self.administrador} {accion} a {self.usuario_afectado}"

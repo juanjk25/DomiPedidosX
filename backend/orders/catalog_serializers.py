@@ -12,6 +12,74 @@ class CategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Categoria
         fields = ["id", "nombre", "descripcion", "sede", "activo"]
+        extra_kwargs = {
+            "nombre": {"max_length": 50, "trim_whitespace": True},
+            "descripcion": {
+                "max_length": 500,
+                "trim_whitespace": True,
+                "required": True,
+                "allow_blank": False,
+            },
+            "sede": {"required": False, "allow_null": True},
+            "activo": {"required": False},
+        }
+
+    def validate_nombre(self, value):
+        if not value.strip():
+            raise serializers.ValidationError("El nombre de la categoría es obligatorio.")
+        return value.strip()
+
+    def validate_descripcion(self, value):
+        if not value.strip():
+            raise serializers.ValidationError("La descripción de la categoría es obligatoria.")
+        return value.strip()
+
+    def validate(self, attrs):
+        user = self.context["request"].user
+        instance = self.instance
+        nombre = attrs.get("nombre", getattr(instance, "nombre", None))
+        sede = attrs.get("sede", getattr(instance, "sede", None))
+        descripcion = attrs.get("descripcion", getattr(instance, "descripcion", None))
+
+        if role_of(user) == "operator":
+            sede_id = branch_of(user)
+            if not sede_id:
+                raise serializers.ValidationError(
+                    {"sede": "Tu cuenta de operador no tiene una sede asignada."}
+                )
+            if sede is not None and sede.pk != sede_id:
+                raise serializers.ValidationError(
+                    {"sede": "Solo puedes gestionar categorías de tu sede asignada."}
+                )
+            if instance is None:
+                attrs["sede"] = Sede.objects.get(pk=sede_id)
+                sede = attrs["sede"]
+
+        if not nombre:
+            raise serializers.ValidationError({"nombre": "El nombre de la categoría es obligatorio."})
+        if not descripcion or not str(descripcion).strip():
+            raise serializers.ValidationError(
+                {"descripcion": "La descripción de la categoría es obligatoria."}
+            )
+        if sede is None:
+            raise serializers.ValidationError({"sede": "Selecciona una sede."})
+
+        duplicate = Categoria.objects.filter(sede=sede, nombre__iexact=nombre)
+        if instance:
+            duplicate = duplicate.exclude(pk=instance.pk)
+        if duplicate.exists():
+            raise serializers.ValidationError(
+                {"nombre": "Ya existe una categoría con este nombre en la sede."}
+            )
+        return attrs
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        previous_status = instance.activo
+        category = super().update(instance, validated_data)
+        if previous_status and not category.activo:
+            category.productos.update(activo=False)
+        return category
 
 
 class MenuProductSerializer(serializers.ModelSerializer):
@@ -23,9 +91,18 @@ class MenuProductSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Producto
-        fields = ["id_producto", "codigo_de_barras", "nombre_producto",
-                  "tipo_de_producto", "categoria", "sede", "activo",
-                  "precio_venta", "imagen_url", "tiempo_preparacion"]
+        fields = [
+            "id_producto",
+            "codigo_de_barras",
+            "nombre_producto",
+            "tipo_de_producto",
+            "categoria",
+            "sede",
+            "activo",
+            "precio_venta",
+            "imagen_url",
+            "tiempo_preparacion",
+        ]
 
 
 class ManagedProductSerializer(MenuProductSerializer):
@@ -33,8 +110,12 @@ class ManagedProductSerializer(MenuProductSerializer):
     sede = serializers.PrimaryKeyRelatedField(queryset=Sede.objects.all())
     imagen_url = serializers.URLField(max_length=500)
     tiempo_preparacion = serializers.IntegerField(min_value=1, max_value=1440)
-    precio_venta = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0.01"))
-    precio_compra = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0"), default=0)
+    precio_venta = serializers.DecimalField(
+        max_digits=12, decimal_places=2, min_value=Decimal("0.01")
+    )
+    precio_compra = serializers.DecimalField(
+        max_digits=12, decimal_places=2, min_value=Decimal("0"), default=0
+    )
 
     class Meta(MenuProductSerializer.Meta):
         fields = MenuProductSerializer.Meta.fields + ["precio_compra"]
@@ -52,7 +133,14 @@ class ManagedProductSerializer(MenuProductSerializer):
         only_deactivate = instance is not None and attrs == {"activo": False}
         if not only_deactivate:
             errors = {}
-            for field in ("nombre_producto", "codigo_de_barras", "categoria", "sede", "imagen_url", "tiempo_preparacion"):
+            for field in (
+                "nombre_producto",
+                "codigo_de_barras",
+                "categoria",
+                "sede",
+                "imagen_url",
+                "tiempo_preparacion",
+            ):
                 value = attrs.get(field, getattr(instance, field, None))
                 if value is None or value == "":
                     errors[field] = "Este campo es obligatorio."
@@ -60,19 +148,35 @@ class ManagedProductSerializer(MenuProductSerializer):
             sede = attrs.get("sede", getattr(instance, "sede", None))
             if category and not category.activo:
                 errors["categoria"] = "Selecciona una categoría activa."
+            if (
+                category
+                and not category.activo
+                and attrs.get("activo", getattr(instance, "activo", False))
+            ):
+                errors["activo"] = "No puedes activar un producto cuya categoría está inactiva."
             if category and sede and category.sede_id != sede.pk:
                 errors["categoria"] = "La categoría debe pertenecer a la sede del producto."
             if errors:
                 raise serializers.ValidationError(errors)
+
         sede = attrs.get("sede", getattr(instance, "sede", None))
         if role_of(user) == "operator" and (not sede or sede.pk != branch_of(user)):
             raise serializers.ValidationError({"sede": "Solo puedes gestionar tu sede asignada."})
         if instance and "sede" in attrs and instance.sede_id and attrs["sede"].pk != instance.sede_id:
-            raise serializers.ValidationError({"sede": "No se puede trasladar un producto existente a otra sede."})
+            raise serializers.ValidationError(
+                {"sede": "No se puede trasladar un producto existente a otra sede."}
+            )
         if instance and "sede" in attrs and not instance.sede_id:
             legacy_branches = set(instance.inventarios.values_list("sede_id", flat=True))
             if legacy_branches - {attrs["sede"].pk}:
-                raise serializers.ValidationError({"sede": "El inventario anterior pertenece a otra sede o a varias. Coordina su separación con el equipo antes de asignar el producto."})
+                raise serializers.ValidationError(
+                    {
+                        "sede": (
+                            "El inventario anterior pertenece a otra sede o a varias. "
+                            "Coordina su separación con el equipo antes de asignar el producto."
+                        )
+                    }
+                )
         return attrs
 
     @transaction.atomic

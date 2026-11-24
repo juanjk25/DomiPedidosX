@@ -1,8 +1,7 @@
 import { useMemo, useState } from 'react'
 import ImagenProducto from '../components/ImagenProducto.jsx'
 
-const MenuPromociones = ({ products, categories, cartItems, onAdd, onChangeQuantity, onCheckout, onLogout, address, onAddressChange, error, onError, checkingOut, branchName }) => {
-  const [query, setQuery] = useState('')
+const MenuPromociones = ({ products, categories, cartItems, onAdd, onChangeQuantity, onCheckout, onLogout, onAccount, address, onAddressChange, error, onError, checkingOut, branchName }) => {  const [query, setQuery] = useState('')
   const [category, setCategory] = useState('all')
 
   const filteredProducts = useMemo(() => products.filter(product => {
@@ -17,7 +16,7 @@ const MenuPromociones = ({ products, categories, cartItems, onAdd, onChangeQuant
       <span className="menu-sidebar-label">02 / CLIENTE</span>
       <button className="menu-nav active">⌁ <span>Pedir pedido</span></button>
       <button className="menu-nav">▤ <span>Mis pedidos</span></button>
-      <button className="menu-nav">♙ <span>Mi cuenta</span></button>
+      <button className="menu-nav" onClick={onAccount}>♙ <span>Mi cuenta</span></button>
       <div className="menu-sidebar-info">
         <strong>{branchName || 'Selecciona una sede'}</strong>
         
