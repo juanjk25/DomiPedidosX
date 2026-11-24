@@ -41,9 +41,11 @@ const RegistroCliente = ({ form, update, error, busy, onSubmit, onBackToLogin })
         <form className="registration-form" onSubmit={handleSubmit} autoComplete="off">
           <div className="registration-fields-row">
             <label>Nombre *
-              <input name="first_name" value={form.first_name} onChange={update} placeholder="Tu nombre" pattern="[A-Za-zÁÉÍÓÚÜÑáéíóúüñ ]+" title="Solo se permiten letras" required />            </label>
+              <input name="first_name" value={form.first_name} onChange={update} placeholder="Tu nombre" pattern="[A-Za-zÁÉÍÓÚÜÑáéíóúüñ ]+" title="Solo se permiten letras" required />
+            </label>
             <label>Apellido *
-              <input name="last_name" value={form.last_name} onChange={update} placeholder="Tu apellido" pattern="[A-Za-zÁÉÍÓÚÜÑáéíóúüñ ]+" title="Solo se permiten letras" required />            </label>
+              <input name="last_name" value={form.last_name} onChange={update} placeholder="Tu apellido" pattern="[A-Za-zÁÉÍÓÚÜÑáéíóúüñ ]+" title="Solo se permiten letras" required />
+            </label>
           </div>
           <div className="registration-fields-row">
             <label>Teléfono *

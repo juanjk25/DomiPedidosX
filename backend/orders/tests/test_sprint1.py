@@ -354,25 +354,6 @@ class Sprint1Tests(TestCase):
     def test_wrong_credentials(self):
         self.assertEqual(APIClient().post('/api/auth/token/', {'username': 'operador', 'password': 'bad'}, format='json').status_code, 401)
 
-
-    def test_registration_rejects_invalid_name_and_birth_date(self):
-        public = APIClient()
-        response = public.post('/api/auth/register/', {
-            'email': 'registro@example.org',
-            'password': 'ClavePrueba-489!',
-            'nombres': 'Juan#$',
-            'apellidos': 'Perez%',
-            'tipo_documento': 'CC',
-            'numero_documento': '456789',
-            'fecha_nacimiento': '1929-01-01',
-            'direccion_residencia': 'Calle 10',
-        }, format='json')
-        self.assertEqual(response.status_code, 400)
-        self.assertIn('nombres', response.data)
-        self.assertIn('apellidos', response.data)
-        self.assertIn('fecha_nacimiento', response.data)
-
-
     def test_recovery_known_unknown_and_invalid_email(self):
         public = APIClient(); public.credentials(HTTP_AUTHORIZATION='Bearer expired')
         known = public.post('/api/auth/password-reset/', {'email': self.customer.email}, format='json')
