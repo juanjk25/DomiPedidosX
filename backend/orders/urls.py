@@ -17,8 +17,10 @@ from .views import (
     TeamMemberListCreateView,
     TeamMemberAuditListView,
     CustomTokenObtainPairView,
+    
 )
 from .kitchen_views import KitchenOrderQueueView
+from .order_status_views import OrderStatusUpdateView
 
 from .catalog_views import (
     PublicCategoryListView,
@@ -28,6 +30,11 @@ from .catalog_views import (
     ManagedCategoryListView,
     ManagedBranchListView,
     ManagedCategoryDetailView,
+)
+from .inventory_views import (
+    ManagedInventoryListCreateView,
+    ManagedInventoryDetailView,
+    ManagedInventoryDisableView,
 )
 
 urlpatterns = [
@@ -51,8 +58,12 @@ urlpatterns = [
     path("management/categories/<int:pk>/", ManagedCategoryDetailView.as_view(), name="managed-category"),
     path("management/products/", ManagedProductListView.as_view(), name="managed-products"),
     path("management/products/<int:pk>/", ManagedProductDetailView.as_view(), name="managed-product"),
+    path("management/inventory/", ManagedInventoryListCreateView.as_view(), name="managed-inventory"),
+    path("management/inventory/<int:pk>/", ManagedInventoryDetailView.as_view(), name="managed-inventory-detail"),
+    path("management/inventory/<int:pk>/disable/", ManagedInventoryDisableView.as_view(), name="managed-inventory-disable"),
     path("orders/", OrderListCreateView.as_view(), name="orders"),
     path("pedidos/cocina/", KitchenOrderQueueView.as_view(), name="kitchen-order-queue"),
+    path("pedidos/<int:pk>/estado/", OrderStatusUpdateView.as_view(), name="order-status-update"),
     path("orders/<int:pk>/cancel/", CustomerOrderCancelView.as_view(), name="order-cancel"),
     path("orders/<int:pk>/status/", OrderStatusView.as_view(), name="order-status"),
     path("team-members/", TeamMemberListCreateView.as_view(), name="team-members"),

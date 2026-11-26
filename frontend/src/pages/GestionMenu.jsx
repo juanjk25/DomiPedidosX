@@ -6,7 +6,7 @@ import ImagenProducto from '../components/ImagenProducto.jsx'
 import CategoriaForm from '../components/CategoriaForm.jsx'
 import { announceMenuChange, money, visibleProducts } from '../utils/productos.js'
 
-export default function GestionMenu({ onPreview, onOpenTeam, onLogout }) {
+export default function GestionMenu({ onPreview, onOpenTeam, onOpenOperator, onOpenInventory, onLogout }) {
   const [products, setProducts] = useState([])
   const [categories, setCategories] = useState([])
   const [branches, setBranches] = useState([])
@@ -129,6 +129,8 @@ export default function GestionMenu({ onPreview, onOpenTeam, onLogout }) {
           <span className="brand-mark">D</span>DomiPedidos<span className="brand-x">X</span>
         </div>
         <nav aria-label="Menú de operador">
+          {onOpenInventory && <button onClick={onOpenInventory}>Inventario</button>}
+          {onOpenOperator && <button onClick={onOpenOperator}>Panel operador</button>}
           {onOpenTeam && <button onClick={onOpenTeam}>Gestionar personal</button>}
           <button onClick={onPreview}>Ver menú del cliente</button>
           <button onClick={onLogout}>Cerrar sesión</button>

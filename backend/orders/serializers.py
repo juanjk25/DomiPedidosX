@@ -18,6 +18,7 @@ from .models import (
     Categoria,
     CredencialEmpleado,
     AuditoriaPersonal,
+    HistorialEstadoPedido,
 )
 from .permissions import role_of, branch_of
 
@@ -807,3 +808,39 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             "can_manage_menu": role_of(self.user) in {"operator", "admin"},
         }
         return data
+
+class PedidoEstadoUpdateSerializer(serializers.Serializer):
+    estado = serializers.ChoiceField(choices=Pedido.Estado.choices)
+
+
+class HistorialEstadoPedidoSerializer(serializers.ModelSerializer):
+    usuario_id = serializers.IntegerField(read_only=True)
+    usuario_username = serializers.CharField(
+        source="usuario.username",
+        read_only=True,
+    )
+
+    class Meta:
+        model = HistorialEstadoPedido
+        fields = [
+            "id",
+            "estado_anterior",
+            "estado_nuevo",
+            "usuario_id",
+            "usuario_username",
+            "rol_usuario",
+            "fecha_hora",
+        ]
+        read_only_fields = fields
+
+
+class PedidoEstadoRespuestaSerializer(serializers.Serializer):
+    id_pedido = serializers.IntegerField()
+    sede_id = serializers.IntegerField()
+    estado_anterior = serializers.CharField()
+    estado_actual = serializers.CharField()
+    fecha_cambio = serializers.DateTimeField()
+    timestamps_por_etapa = serializers.DictField(
+        child=serializers.DateTimeField()
+    )
+    historial = HistorialEstadoPedidoSerializer(many=True)

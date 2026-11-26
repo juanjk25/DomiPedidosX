@@ -124,3 +124,7 @@ class IsKitchenStaffOrAdmin(BasePermission):
 class IsAdministrator(BasePermission):
     def has_permission(self, request, view):
         return role_of(request.user) == "admin"
+
+class IsKitchenOrDeliveryStaff(BasePermission):
+    def has_permission(self, request, view):
+        return role_of(request.user) in {"kitchen", "courier"}

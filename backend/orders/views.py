@@ -247,7 +247,14 @@ class OrderListCreateView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        cliente = Cliente.objects.get(credencial__usuario=request.user)
+        try:
+            cliente = Cliente.objects.get(credencial__usuario=request.user)
+        except Cliente.DoesNotExist:
+            return Response(
+                {"detail": "Esta cuenta no tiene perfil de cliente."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
         pedidos = Pedido.objects.filter(cliente=cliente).order_by("-fecha_hora_pedido")
         serializer = PedidoSerializer(pedidos, many=True)
         return Response(serializer.data)

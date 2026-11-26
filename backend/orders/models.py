@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from django.utils import timezone
 
 
 class Departamento(models.Model):
@@ -185,6 +186,7 @@ class Inventario(models.Model):
     cantidad_disponible = models.IntegerField(default=0)
     stock_minimo = models.IntegerField(default=10)
     stock_maximo = models.IntegerField(default=1000)
+    activo = models.BooleanField(default=True)
 
     class Meta:
         db_table = "inventario"
@@ -264,6 +266,14 @@ class Repartidor(models.Model):
 
 
 class Pedido(models.Model):
+    class Estado(models.TextChoices):
+        PENDIENTE = "Pendiente", "Pendiente"
+        PREPARANDO = "Preparando", "Preparando"
+        LISTO = "Listo", "Listo"
+        EN_CAMINO = "En camino", "En camino"
+        ENTREGADO = "Entregado", "Entregado"
+        CANCELADO = "Cancelado", "Cancelado"
+
     id_pedido = models.AutoField(primary_key=True)
     cliente = models.ForeignKey(
         Cliente, db_column="id_cliente", on_delete=models.PROTECT, related_name="pedidos"
@@ -279,7 +289,11 @@ class Pedido(models.Model):
         on_delete=models.SET_NULL,
         related_name="pedidos",
     )
-    estado_pedido = models.CharField(max_length=30, default="Pendiente")
+    estado_pedido = models.CharField(
+        max_length=30,
+        choices=Estado.choices,
+        default=Estado.PENDIENTE,
+    )
     direccion_entrega = models.CharField(max_length=150)
     notas_cliente = models.TextField(blank=True)
     fecha_hora_pedido = models.DateTimeField(auto_now_add=True)
@@ -364,3 +378,42 @@ class AuditoriaPersonal(models.Model):
     def __str__(self):
         accion = "activó" if self.estado_nuevo else "desactivó"
         return f"{self.administrador} {accion} a {self.usuario_afectado}"
+
+class HistorialEstadoPedido(models.Model):
+    pedido = models.ForeignKey(
+        Pedido,
+        db_column="id_pedido",
+        on_delete=models.CASCADE,
+        related_name="historial_estados",
+    )
+    estado_anterior = models.CharField(
+        max_length=30,
+        choices=Pedido.Estado.choices,
+    )
+    estado_nuevo = models.CharField(
+        max_length=30,
+        choices=Pedido.Estado.choices,
+    )
+    usuario = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="cambios_estado_pedidos",
+    )
+    rol_usuario = models.CharField(max_length=20)
+    fecha_hora = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "historial_estado_pedido"
+        ordering = ["fecha_hora", "id"]
+        indexes = [
+            models.Index(
+                fields=["pedido", "fecha_hora"],
+                name="idx_hist_pedido_fecha",
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"Pedido #{self.pedido_id}: "
+            f"{self.estado_anterior} -> {self.estado_nuevo}"
+        )
