@@ -1,5 +1,6 @@
 from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView
+
 from .views import (
     BranchListView,
     CustomerListView,
@@ -17,6 +18,8 @@ from .views import (
     TeamMemberAuditListView,
     CustomTokenObtainPairView,
 )
+from .kitchen_views import KitchenOrderQueueView
+
 from .catalog_views import (
     PublicCategoryListView,
     PublicProductListView,
@@ -49,6 +52,7 @@ urlpatterns = [
     path("management/products/", ManagedProductListView.as_view(), name="managed-products"),
     path("management/products/<int:pk>/", ManagedProductDetailView.as_view(), name="managed-product"),
     path("orders/", OrderListCreateView.as_view(), name="orders"),
+    path("pedidos/cocina/", KitchenOrderQueueView.as_view(), name="kitchen-order-queue"),
     path("orders/<int:pk>/cancel/", CustomerOrderCancelView.as_view(), name="order-cancel"),
     path("orders/<int:pk>/status/", OrderStatusView.as_view(), name="order-status"),
     path("team-members/", TeamMemberListCreateView.as_view(), name="team-members"),
