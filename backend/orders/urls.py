@@ -1,5 +1,6 @@
 from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView
+
 from .views import (
     BranchListView,
     CategoryListView,
@@ -15,6 +16,8 @@ from .views import (
     TeamMemberStatusView,
     CustomTokenObtainPairView,
 )
+from .kitchen_views import KitchenOrderQueueView
+
 
 urlpatterns = [
     path("auth/register/", RegisterView.as_view(), name="register"),
@@ -29,6 +32,7 @@ urlpatterns = [
     path("categories/", CategoryListView.as_view(), name="categories"),
     path("products/", ProductListView.as_view(), name="products"),
     path("orders/", OrderListCreateView.as_view(), name="orders"),
+    path("pedidos/cocina/", KitchenOrderQueueView.as_view(), name="kitchen-order-queue"),
     path("orders/<int:pk>/cancel/", CustomerOrderCancelView.as_view(), name="order-cancel"),
     path("orders/<int:pk>/status/", OrderStatusView.as_view(), name="order-status"),
     path("team-members/<int:pk>/status/", TeamMemberStatusView.as_view(), name="team-member-status"),

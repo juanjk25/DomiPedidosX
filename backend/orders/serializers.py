@@ -182,6 +182,47 @@ class PedidoSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+# Serializadores para la cola de pedidos de cocina
+class PedidoCocinaItemSerializer(serializers.ModelSerializer):
+    producto_id = serializers.IntegerField(read_only=True)
+    nombre_producto = serializers.CharField(
+        source="producto.nombre_producto",
+        read_only=True,
+    )
+
+    class Meta:
+        model = DetallePedido
+        fields = ["id_linea", "producto_id", "nombre_producto", "cantidad"]
+        read_only_fields = fields
+
+
+class PedidoCocinaSerializer(serializers.ModelSerializer):
+    sede_id = serializers.IntegerField(read_only=True)
+    detalles = PedidoCocinaItemSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Pedido
+        fields = [
+            "id_pedido",
+            "sede_id",
+            "estado_pedido",
+            "fecha_hora_pedido",
+            "notas_cliente",
+            "detalles",
+        ]
+        read_only_fields = fields
+
+
+class PedidosCocinaColumnasSerializer(serializers.Serializer):
+    recibidos = PedidoCocinaSerializer(many=True)
+    en_preparacion = PedidoCocinaSerializer(many=True)
+    listos = PedidoCocinaSerializer(many=True)
+
+
+class PedidosCocinaRespuestaSerializer(serializers.Serializer):
+    pedidos_por_estado = PedidosCocinaColumnasSerializer()
+
+
 class PedidoCreateSerializer(serializers.Serializer):
     sede = serializers.PrimaryKeyRelatedField(queryset=Sede.objects.all())
     direccion_entrega = serializers.CharField(max_length=150)
@@ -253,8 +294,10 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
     token = serializers.CharField()
     new_password = serializers.CharField(write_only=True, min_length=8)
 
+
 class TeamMemberStatusSerializer(serializers.Serializer):
     is_active = serializers.BooleanField()
+
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     @classmethod
