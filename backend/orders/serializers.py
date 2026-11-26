@@ -12,12 +12,15 @@ from .models import (
     CredencialCliente,
     Sede,
     Producto,
+    Inventario,
     Pedido,
     DetallePedido,
     PerfilTrabajador,
     Categoria,
     CredencialEmpleado,
     AuditoriaPersonal,
+    Carrito,
+    ItemCarrito,
 )
 from .permissions import role_of, branch_of
 
@@ -351,6 +354,32 @@ class PedidoCreateSerializer(serializers.Serializer):
         if len(products) != len(product_ids) or any(not p.activo for p in products.values()):
             raise serializers.ValidationError({"items": "Un producto ya no está disponible en esta sede. Actualiza el menú."})
 
+        # HU-B14: Validar y descontar inventario por sede de forma atómica.
+        inventarios = {
+            inv.producto_id: inv
+            for inv in Inventario.objects.select_for_update().filter(
+                sede=validated_data["sede"],
+                producto_id__in=product_ids,
+            )
+        }
+        for item in items_data:
+            producto = products[item["producto_id"]]
+            inv = inventarios.get(producto.pk)
+            if inv is not None:
+                if inv.cantidad_disponible <= 0:
+                    raise serializers.ValidationError(
+                        {"items": f"El producto '{producto.nombre_producto}' está agotado en esta sede."}
+                    )
+                if inv.cantidad_disponible < item["cantidad"]:
+                    raise serializers.ValidationError(
+                        {
+                            "items": (
+                                f"Stock insuficiente para '{producto.nombre_producto}' "
+                                f"(disponibles: {inv.cantidad_disponible})."
+                            )
+                        }
+                    )
+
         pedido = Pedido.objects.create(
             cliente=cliente,
             sede=validated_data["sede"],
@@ -366,6 +395,10 @@ class PedidoCreateSerializer(serializers.Serializer):
                 cantidad=item["cantidad"],
                 precio_unitario_aplicado=producto.precio_venta,
             )
+            inv = inventarios.get(producto.pk)
+            if inv is not None:
+                inv.cantidad_disponible -= item["cantidad"]
+                inv.save(update_fields=["cantidad_disponible"])
 
         return pedido
 
@@ -807,3 +840,168 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             "can_manage_menu": role_of(self.user) in {"operator", "admin"},
         }
         return data
+
+
+class ItemCarritoSerializer(serializers.ModelSerializer):
+    """Línea individual del carrito de compras con subtotal calculado (HU-C2)."""
+
+    producto_id = serializers.IntegerField(source="producto.id_producto", read_only=True)
+    nombre_producto = serializers.CharField(
+        source="producto.nombre_producto", read_only=True
+    )
+    precio_unitario = serializers.DecimalField(
+        source="producto.precio_venta",
+        max_digits=12,
+        decimal_places=2,
+        read_only=True,
+    )
+    imagen_url = serializers.URLField(source="producto.imagen_url", read_only=True)
+    subtotal_linea = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ItemCarrito
+        fields = [
+            "id",
+            "producto_id",
+            "nombre_producto",
+            "precio_unitario",
+            "cantidad",
+            "subtotal_linea",
+            "imagen_url",
+        ]
+
+    def get_subtotal_linea(self, obj) -> str:
+        return f"{obj.producto.precio_venta * obj.cantidad:.2f}"
+
+
+class CarritoSerializer(serializers.ModelSerializer):
+    """Carrito completo del cliente con totales recalculados automáticamente (HU-C2)."""
+
+    items = ItemCarritoSerializer(many=True, read_only=True)
+    sede_nombre = serializers.CharField(
+        source="sede.nombre_sede", read_only=True, default=None
+    )
+    total_unidades = serializers.SerializerMethodField()
+    subtotal = serializers.SerializerMethodField()
+    domicilio = serializers.SerializerMethodField()
+    total = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Carrito
+        fields = [
+            "id",
+            "sede",
+            "sede_nombre",
+            "items",
+            "total_unidades",
+            "subtotal",
+            "domicilio",
+            "total",
+            "actualizado_en",
+        ]
+
+    def get_total_unidades(self, obj) -> int:
+        return sum(item.cantidad for item in obj.items.all())
+
+    def _subtotal_decimal(self, obj):
+        return sum(
+            (item.producto.precio_venta * item.cantidad for item in obj.items.all()),
+            0,
+        )
+
+    def get_subtotal(self, obj) -> str:
+        return f"{self._subtotal_decimal(obj):.2f}"
+
+    def get_domicilio(self, obj) -> str:
+        return "0.00"
+
+    def get_total(self, obj) -> str:
+        return f"{self._subtotal_decimal(obj):.2f}"
+
+
+class CarritoAddItemSerializer(serializers.Serializer):
+    """Valida la adición de un producto al carrito y su disponibilidad en sede (HU-C2, HU-B14)."""
+
+    producto_id = serializers.IntegerField(min_value=1)
+    cantidad = serializers.IntegerField(min_value=1, max_value=20, default=1)
+    sede_id = serializers.IntegerField(min_value=1, required=False, allow_null=True)
+
+    def validate(self, attrs):
+        carrito = self.context["carrito"]
+        producto_id = attrs["producto_id"]
+        cantidad = attrs["cantidad"]
+
+        try:
+            producto = Producto.objects.select_related("categoria", "sede").get(
+                pk=producto_id
+            )
+        except Producto.DoesNotExist:
+            raise serializers.ValidationError({"producto_id": "El producto no existe."})
+
+        if not producto.activo or (
+            producto.categoria_id and not producto.categoria.activo
+        ):
+            raise serializers.ValidationError(
+                {"producto_id": "Este producto no está disponible en el menú."}
+            )
+
+        sede_id = attrs.get("sede_id") or producto.sede_id or carrito.sede_id
+        if not sede_id:
+            raise serializers.ValidationError(
+                {"sede_id": "Debes indicar la sede para agregar este producto."}
+            )
+
+        try:
+            sede = Sede.objects.get(pk=sede_id)
+        except Sede.DoesNotExist:
+            raise serializers.ValidationError({"sede_id": "La sede indicada no existe."})
+
+        from .catalog_views import in_branch, public_products
+
+        if not in_branch(public_products(), sede.pk).filter(pk=producto.pk).exists():
+            raise serializers.ValidationError(
+                {"producto_id": "Este producto no pertenece a la sede seleccionada."}
+            )
+
+        if carrito.items.exists() and carrito.sede_id and carrito.sede_id != sede.pk:
+            raise serializers.ValidationError(
+                {
+                    "sede_id": (
+                        "Tu carrito contiene productos de otra sede. "
+                        "Vacíalo antes de cambiar de sede."
+                    )
+                }
+            )
+
+        existing = carrito.items.filter(producto=producto).first()
+        nueva_cantidad = (existing.cantidad if existing else 0) + cantidad
+        if nueva_cantidad > 20:
+            raise serializers.ValidationError(
+                {"cantidad": "No puedes agregar más de 20 unidades de un mismo producto."}
+            )
+
+        inv = Inventario.objects.filter(producto=producto, sede=sede).first()
+        if inv is not None:
+            if inv.cantidad_disponible <= 0:
+                raise serializers.ValidationError(
+                    {"producto_id": "Este producto está agotado en la sede seleccionada."}
+                )
+            if nueva_cantidad > inv.cantidad_disponible:
+                raise serializers.ValidationError(
+                    {
+                        "cantidad": (
+                            f"Solo hay {inv.cantidad_disponible} unidades disponibles "
+                            "en esta sede."
+                        )
+                    }
+                )
+
+        attrs["producto"] = producto
+        attrs["sede"] = sede
+        return attrs
+
+
+class CarritoUpdateItemSerializer(serializers.Serializer):
+    """Valida la actualización directa de la cantidad de un ítem en el carrito (HU-C2)."""
+
+    cantidad = serializers.IntegerField(min_value=0, max_value=20)

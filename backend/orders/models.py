@@ -194,6 +194,22 @@ class Inventario(models.Model):
             )
         ]
 
+    @property
+    def esta_agotado(self) -> bool:
+        return self.cantidad_disponible <= 0
+
+    @property
+    def stock_bajo(self) -> bool:
+        return self.cantidad_disponible <= self.stock_minimo
+
+    @property
+    def nivel_alerta(self):
+        if self.cantidad_disponible <= 0:
+            return "agotado"
+        if self.cantidad_disponible <= self.stock_minimo:
+            return "stock_bajo"
+        return None
+
 
 class Empleado(models.Model):
     id_empleado = models.AutoField(primary_key=True)
@@ -364,3 +380,48 @@ class AuditoriaPersonal(models.Model):
     def __str__(self):
         accion = "activó" if self.estado_nuevo else "desactivó"
         return f"{self.administrador} {accion} a {self.usuario_afectado}"
+
+
+class Carrito(models.Model):
+    """Carrito de compras persistente por cliente y sede (HU-C2)."""
+
+    cliente = models.OneToOneField(
+        Cliente, on_delete=models.CASCADE, related_name="carrito"
+    )
+    sede = models.ForeignKey(
+        Sede,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="carritos",
+    )
+    actualizado_en = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "carrito"
+
+    def __str__(self):
+        return f"Carrito de {self.cliente.nombre_completo}"
+
+
+class ItemCarrito(models.Model):
+    """Línea de producto dentro del carrito de compras (HU-C2)."""
+
+    carrito = models.ForeignKey(
+        Carrito, on_delete=models.CASCADE, related_name="items"
+    )
+    producto = models.ForeignKey(
+        Producto, on_delete=models.PROTECT, related_name="items_carrito"
+    )
+    cantidad = models.PositiveIntegerField(default=1)
+
+    class Meta:
+        db_table = "item_carrito"
+        constraints = [
+            models.UniqueConstraint(
+                fields=("carrito", "producto"), name="uq_carrito_producto"
+            )
+        ]
+
+    def __str__(self):
+        return f"{self.producto.nombre_producto} x {self.cantidad}"

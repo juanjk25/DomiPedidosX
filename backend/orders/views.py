@@ -13,7 +13,17 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
-from .models import Cliente, Sede, Pedido, Producto, Categoria, AuditoriaPersonal
+from .models import (
+    Cliente,
+    Sede,
+    Pedido,
+    Producto,
+    Categoria,
+    AuditoriaPersonal,
+    Inventario,
+    Carrito,
+    ItemCarrito,
+)
 from .permissions import role_of, branch_of, IsAdministrator, IsOrderManager
 from .serializers import (
     RegisterSerializer,
@@ -30,6 +40,9 @@ from .serializers import (
     CustomerProfileUpdateSerializer,
     PasswordChangeSerializer,
     CustomTokenObtainPairSerializer,
+    CarritoSerializer,
+    CarritoAddItemSerializer,
+    CarritoUpdateItemSerializer,
 )
 
 User = get_user_model()
@@ -267,27 +280,232 @@ class OrderListCreateView(APIView):
 
 
 class CustomerOrderCancelView(APIView):
+    """
+    Cancela un pedido si aún no ha iniciado preparación en cocina (HU-C6, HU-C7).
+    Roles permitidos: cliente (sus pedidos), operador (pedidos de su sede) y administrador.
+    """
+
     permission_classes = [permissions.IsAuthenticated]
+    NON_CANCELLABLE_STATES = {"Preparando", "Listo", "En Camino", "Entregado"}
 
     def post(self, request, pk):
+        rol = role_of(request.user)
+        if rol not in {"customer", "operator", "admin"}:
+            return Response(
+                {"error": "No tienes permiso para cancelar pedidos."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
         try:
-            cliente = Cliente.objects.get(credencial__usuario=request.user)
-            pedido = Pedido.objects.get(pk=pk, cliente=cliente)
+            if rol == "customer":
+                cliente = Cliente.objects.get(credencial__usuario=request.user)
+                pedido = Pedido.objects.get(pk=pk, cliente=cliente)
+            elif rol == "operator":
+                sede_id = branch_of(request.user)
+                pedido = Pedido.objects.get(pk=pk, sede_id=sede_id)
+            else:
+                pedido = Pedido.objects.get(pk=pk)
         except (Cliente.DoesNotExist, Pedido.DoesNotExist):
             return Response(
                 {"error": "Pedido no encontrado."},
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        if pedido.estado_pedido != "Pendiente":
+        if pedido.estado_pedido == "Cancelado":
             return Response(
-                {"error": "Solo se pueden cancelar pedidos en estado Pendiente."},
+                {
+                    "error": "El pedido ya fue cancelado previamente.",
+                    "estado_pedido": pedido.estado_pedido,
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        pedido.estado_pedido = "Cancelado"
-        pedido.save(update_fields=["estado_pedido"])
-        return Response({"message": "Pedido cancelado."})
+        if pedido.estado_pedido in self.NON_CANCELLABLE_STATES or pedido.estado_pedido != "Pendiente":
+            return Response(
+                {
+                    "error": (
+                        "No se puede cancelar el pedido porque ya inició preparación "
+                        "o se encuentra en una etapa posterior."
+                    ),
+                    "estado_pedido": pedido.estado_pedido,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            pedido.estado_pedido = "Cancelado"
+            pedido.save(update_fields=["estado_pedido"])
+
+            for detalle in pedido.detalles.select_related("producto"):
+                inv = Inventario.objects.select_for_update().filter(
+                    producto=detalle.producto,
+                    sede=pedido.sede,
+                ).first()
+                if inv is not None:
+                    inv.cantidad_disponible += detalle.cantidad
+                    inv.save(update_fields=["cantidad_disponible"])
+
+        return Response(
+            {
+                "message": "Pedido cancelado.",
+                "id_pedido": pedido.id_pedido,
+                "estado_pedido": pedido.estado_pedido,
+            }
+        )
+
+
+def _get_or_create_cliente_cart(user):
+    try:
+        cliente = Cliente.objects.get(credencial__usuario=user)
+    except Cliente.DoesNotExist:
+        return None, None
+    carrito, _ = Carrito.objects.get_or_create(cliente=cliente)
+    return cliente, carrito
+
+
+class CartView(APIView):
+    """Consulta o vacía el carrito de compras del cliente autenticado (HU-C2)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        cliente, carrito = _get_or_create_cliente_cart(request.user)
+        if cliente is None:
+            return Response(
+                {"detail": "Esta cuenta no tiene perfil de cliente."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        carrito = Carrito.objects.prefetch_related("items__producto").get(pk=carrito.pk)
+        return Response(CarritoSerializer(carrito).data, status=status.HTTP_200_OK)
+
+    def delete(self, request):
+        cliente, carrito = _get_or_create_cliente_cart(request.user)
+        if cliente is None:
+            return Response(
+                {"detail": "Esta cuenta no tiene perfil de cliente."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        with transaction.atomic():
+            carrito.items.all().delete()
+            carrito.sede = None
+            carrito.save(update_fields=["sede", "actualizado_en"])
+        return Response(CarritoSerializer(carrito).data, status=status.HTTP_200_OK)
+
+
+class CartItemAddView(APIView):
+    """Agrega un producto al carrito o incrementa su cantidad si ya existe (HU-C2)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        cliente, carrito = _get_or_create_cliente_cart(request.user)
+        if cliente is None:
+            return Response(
+                {"detail": "Esta cuenta no tiene perfil de cliente."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        serializer = CarritoAddItemSerializer(
+            data=request.data,
+            context={"carrito": carrito},
+        )
+        serializer.is_valid(raise_exception=True)
+
+        producto = serializer.validated_data["producto"]
+        sede = serializer.validated_data["sede"]
+        cantidad = serializer.validated_data["cantidad"]
+
+        with transaction.atomic():
+            if carrito.sede_id != sede.pk:
+                carrito.sede = sede
+                carrito.save(update_fields=["sede", "actualizado_en"])
+            item, created = ItemCarrito.objects.get_or_create(
+                carrito=carrito,
+                producto=producto,
+                defaults={"cantidad": cantidad},
+            )
+            if not created:
+                item.cantidad += cantidad
+                item.save(update_fields=["cantidad"])
+
+        carrito = Carrito.objects.prefetch_related("items__producto").get(pk=carrito.pk)
+        return Response(CarritoSerializer(carrito).data, status=status.HTTP_200_OK)
+
+
+class CartItemDetailView(APIView):
+    """Actualiza la cantidad o elimina una línea del carrito (HU-C2)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def patch(self, request, producto_id):
+        cliente, carrito = _get_or_create_cliente_cart(request.user)
+        if cliente is None:
+            return Response(
+                {"detail": "Esta cuenta no tiene perfil de cliente."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        try:
+            item = ItemCarrito.objects.select_related("producto").get(
+                carrito=carrito, producto_id=producto_id
+            )
+        except ItemCarrito.DoesNotExist:
+            return Response(
+                {"detail": "El producto no está en el carrito."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = CarritoUpdateItemSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        nueva_cantidad = serializer.validated_data["cantidad"]
+
+        with transaction.atomic():
+            if nueva_cantidad == 0:
+                item.delete()
+                if not carrito.items.exists():
+                    carrito.sede = None
+                    carrito.save(update_fields=["sede", "actualizado_en"])
+            else:
+                inv = Inventario.objects.filter(
+                    producto=item.producto, sede=carrito.sede
+                ).first()
+                if inv is not None and nueva_cantidad > inv.cantidad_disponible:
+                    return Response(
+                        {
+                            "cantidad": [
+                                f"Solo hay {inv.cantidad_disponible} unidades disponibles en esta sede."
+                            ]
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                item.cantidad = nueva_cantidad
+                item.save(update_fields=["cantidad"])
+
+        carrito = Carrito.objects.prefetch_related("items__producto").get(pk=carrito.pk)
+        return Response(CarritoSerializer(carrito).data, status=status.HTTP_200_OK)
+
+    def delete(self, request, producto_id):
+        cliente, carrito = _get_or_create_cliente_cart(request.user)
+        if cliente is None:
+            return Response(
+                {"detail": "Esta cuenta no tiene perfil de cliente."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        deleted, _ = ItemCarrito.objects.filter(
+            carrito=carrito, producto_id=producto_id
+        ).delete()
+        if not deleted:
+            return Response(
+                {"detail": "El producto no está en el carrito."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        if not carrito.items.exists():
+            carrito.sede = None
+            carrito.save(update_fields=["sede", "actualizado_en"])
+
+        carrito = Carrito.objects.prefetch_related("items__producto").get(pk=carrito.pk)
+        return Response(CarritoSerializer(carrito).data, status=status.HTTP_200_OK)
 
 
 class OrderStatusView(APIView):

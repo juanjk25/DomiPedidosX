@@ -17,9 +17,35 @@ class CategorySerializer(serializers.ModelSerializer):
 class MenuProductSerializer(serializers.ModelSerializer):
     # Se mantiene el nombre usado por los filtros del frontend existente.
     tipo_de_producto = serializers.SerializerMethodField()
+    stock_disponible = serializers.SerializerMethodField()
+    agotado = serializers.SerializerMethodField()
 
-    def get_tipo_de_producto(self, obj):
+    def get_tipo_de_producto(self, obj) -> str:
         return obj.categoria.nombre if obj.categoria_id else obj.tipo_de_producto
+
+    def _inventario_sede(self, obj):
+        request = self.context.get("request")
+        sede_id = None
+        if request is not None:
+            raw = request.query_params.get("sede", request.query_params.get("branch"))
+            try:
+                if raw and int(raw) > 0:
+                    sede_id = int(raw)
+            except (TypeError, ValueError):
+                sede_id = None
+        if sede_id is None:
+            sede_id = obj.sede_id
+        if sede_id is None:
+            return None
+        return obj.inventarios.filter(sede_id=sede_id).first()
+
+    def get_stock_disponible(self, obj):
+        inv = self._inventario_sede(obj)
+        return inv.cantidad_disponible if inv is not None else None
+
+    def get_agotado(self, obj) -> bool:
+        inv = self._inventario_sede(obj)
+        return inv.esta_agotado if inv is not None else False
 
     class Meta:
         model = Producto
@@ -34,6 +60,31 @@ class MenuProductSerializer(serializers.ModelSerializer):
             "precio_venta",
             "imagen_url",
             "tiempo_preparacion",
+            "stock_disponible",
+            "agotado",
+        ]
+
+
+class InventarioAlertaSerializer(serializers.ModelSerializer):
+    """Alerta de stock bajo o agotado para el operador de sede (HU-B14)."""
+
+    producto_id = serializers.IntegerField(source="producto.id_producto", read_only=True)
+    nombre_producto = serializers.CharField(source="producto.nombre_producto", read_only=True)
+    sede_id = serializers.IntegerField(source="sede.id_sede", read_only=True)
+    nombre_sede = serializers.CharField(source="sede.nombre_sede", read_only=True)
+    nivel = serializers.CharField(source="nivel_alerta", read_only=True)
+
+    class Meta:
+        model = Inventario
+        fields = [
+            "id_inventario",
+            "producto_id",
+            "nombre_producto",
+            "sede_id",
+            "nombre_sede",
+            "cantidad_disponible",
+            "stock_minimo",
+            "nivel",
         ]
 
 

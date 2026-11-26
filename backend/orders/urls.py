@@ -6,6 +6,9 @@ from .views import (
     CustomerListView,
     SedeHorarioView,
     MeView,
+    CartView,
+    CartItemAddView,
+    CartItemDetailView,
     OrderListCreateView,
     CustomerOrderCancelView,
     OrderStatusView,
@@ -28,6 +31,7 @@ from .catalog_views import (
     ManagedCategoryListView,
     ManagedBranchListView,
     ManagedCategoryDetailView,
+    InventoryAlertListView,
 )
 
 urlpatterns = [
@@ -51,6 +55,10 @@ urlpatterns = [
     path("management/categories/<int:pk>/", ManagedCategoryDetailView.as_view(), name="managed-category"),
     path("management/products/", ManagedProductListView.as_view(), name="managed-products"),
     path("management/products/<int:pk>/", ManagedProductDetailView.as_view(), name="managed-product"),
+    path("management/inventory/alerts/", InventoryAlertListView.as_view(), name="inventory-alerts"),
+    path("cart/", CartView.as_view(), name="cart"),
+    path("cart/items/", CartItemAddView.as_view(), name="cart-items"),
+    path("cart/items/<int:producto_id>/", CartItemDetailView.as_view(), name="cart-item-detail"),
     path("orders/", OrderListCreateView.as_view(), name="orders"),
     path("pedidos/cocina/", KitchenOrderQueueView.as_view(), name="kitchen-order-queue"),
     path("orders/<int:pk>/cancel/", CustomerOrderCancelView.as_view(), name="order-cancel"),

@@ -1,9 +1,14 @@
-from django.db.models import Q
+from django.db.models import F, Q
 from rest_framework import generics, permissions
 from rest_framework.exceptions import ValidationError
 
-from .catalog_serializers import CategorySerializer, ManagedProductSerializer, MenuProductSerializer
-from .models import Categoria, Producto, Sede
+from .catalog_serializers import (
+    CategorySerializer,
+    InventarioAlertaSerializer,
+    ManagedProductSerializer,
+    MenuProductSerializer,
+)
+from .models import Categoria, Inventario, Producto, Sede
 from .permissions import IsOrderManager, branch_of, role_of
 from .serializers import SedeSerializer
 
@@ -131,3 +136,22 @@ class ManagedProductListView(ManagedProductQueryset, generics.ListCreateAPIView)
 
 class ManagedProductDetailView(ManagedProductQueryset, generics.RetrieveUpdateAPIView):
     http_method_names = ["get", "patch", "head", "options"]
+
+
+class InventoryAlertListView(generics.ListAPIView):
+    """Lista alertas de productos agotados o con stock bajo por sede (HU-B14)."""
+
+    permission_classes = [IsOrderManager]
+    serializer_class = InventarioAlertaSerializer
+
+    def get_queryset(self):
+        qs = Inventario.objects.select_related("producto", "sede").filter(
+            cantidad_disponible__lte=F("stock_minimo"),
+            producto__activo=True,
+        )
+        if role_of(self.request.user) == "operator":
+            qs = qs.filter(sede_id=branch_of(self.request.user))
+        branch = branch_param(self.request)
+        if branch:
+            qs = qs.filter(sede_id=branch)
+        return qs.order_by("cantidad_disponible", "producto__nombre_producto")
