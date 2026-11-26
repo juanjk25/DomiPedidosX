@@ -1,0 +1,54 @@
+﻿Estado,Ruta desde DomiPedidosX,Historias relacionadas
+MODIFICADO,.env.example,"Integración compartida: autenticación, permisos o configuración"
+MODIFICADO,.gitignore,Transversal / pruebas / documentación
+MODIFICADO,README.md,Transversal / pruebas / documentación
+MODIFICADO,backend/config/settings.py,"Integración compartida: autenticación, permisos o configuración"
+NUEVO,backend/config/test_settings.py,Transversal / pruebas / documentación
+MODIFICADO,backend/config/urls.py,"Integración compartida: autenticación, permisos o configuración"
+MODIFICADO,backend/orders/admin.py,"Integración compartida: autenticación, permisos o configuración"
+NUEVO,backend/orders/catalog_serializers.py,"HU-B4, HU-B5, HU-B6, HU-B8 / dependencias"
+NUEVO,backend/orders/catalog_views.py,"HU-B4, HU-B5, HU-B6, HU-B8 / dependencias"
+MODIFICADO,backend/orders/management/commands/seed_demo.py,"HU-B4, HU-B5, HU-B6, HU-B8 / dependencias"
+NUEVO,backend/orders/migrations/0004_menu_sprint1.py,"HU-B4, HU-B5, HU-B6, HU-B8 / dependencias"
+NUEVO,backend/orders/migrations/0005_migrate_menu_data.py,"HU-B4, HU-B5, HU-B6, HU-B8 / dependencias"
+NUEVO,backend/orders/migrations/0006_categorias_por_sede.py,"HU-B4, HU-B5, HU-B6, HU-B8 / dependencias"
+MODIFICADO,backend/orders/models.py,"HU-B4, HU-B5, HU-B6, HU-B8 / dependencias"
+MODIFICADO,backend/orders/permissions.py,"Integración compartida: autenticación, permisos o configuración"
+MODIFICADO,backend/orders/serializers.py,"Integración compartida: autenticación, permisos o configuración"
+NUEVO,backend/orders/tests/__init__.py,Transversal / pruebas / documentación
+NUEVO,backend/orders/tests/e2e_server.py,Transversal / pruebas / documentación
+NUEVO,backend/orders/tests/test_migrations.py,Transversal / pruebas / documentación
+NUEVO,backend/orders/tests/test_sprint1.py,Transversal / pruebas / documentación
+MODIFICADO,backend/orders/urls.py,"Integración compartida: autenticación, permisos o configuración"
+MODIFICADO,backend/orders/views.py,"Integración compartida: autenticación, permisos o configuración"
+MODIFICADO,compose.yaml,"Integración compartida: autenticación, permisos o configuración"
+NUEVO,docs/archivos_sprint1.csv,Transversal / pruebas / documentación
+NUEVO,docs/contratos_sprint1.md,Transversal / pruebas / documentación
+NUEVO,docs/sprint1_emanuel.md,Transversal / pruebas / documentación
+NUEVO,docs/verificacion_sprint1.md,Transversal / pruebas / documentación
+MODIFICADO,frontend/package-lock.json,Transversal / pruebas / documentación
+MODIFICADO,frontend/package.json,Transversal / pruebas / documentación
+NUEVO,frontend/playwright.config.js,Transversal / pruebas / documentación
+MODIFICADO,frontend/src/App.jsx,"Integración compartida: autenticación, permisos o configuración"
+MODIFICADO,frontend/src/api.js,"Integración compartida: autenticación, permisos o configuración"
+NUEVO,frontend/src/components/AuthLayout.jsx,HU-A4
+NUEVO,frontend/src/components/ConfirmarDesactivacion.jsx,HU-B8
+NUEVO,frontend/src/components/ImagenProducto.jsx,"HU-B4, HU-B5, HU-B6"
+NUEVO,frontend/src/components/ProductoForm.jsx,"HU-B5, HU-B6"
+NUEVO,frontend/src/components/RegistroPanel.jsx,HU-A4
+NUEVO,frontend/src/pages/GestionMenu.jsx,"HU-B4, HU-B5, HU-B6, HU-B8 / dependencias"
+NUEVO,frontend/src/pages/IniciarSesion.jsx,HU-A4
+NUEVO,frontend/src/pages/InicioPersonal.jsx,HU-A4
+MODIFICADO,frontend/src/pages/MenuPromociones.jsx,"HU-B4, HU-B5, HU-B6, HU-B8 / dependencias"
+NUEVO,frontend/src/pages/RecuperarContrasena.jsx,HU-A6
+NUEVO,frontend/src/pages/RestablecerContrasena.jsx,HU-A6
+NUEVO,frontend/src/sprint1.css,"Integración compartida: autenticación, permisos o configuración"
+NUEVO,frontend/src/utils/productos.js,"HU-B4, HU-B5, HU-B6, HU-B8 / dependencias"
+NUEVO,frontend/src/utils/session.js,HU-A4
+NUEVO,frontend/tests/components/app-session.test.jsx,Transversal / pruebas / documentación
+NUEVO,frontend/tests/components/setup.js,Transversal / pruebas / documentación
+NUEVO,frontend/tests/components/sprint1.test.jsx,Transversal / pruebas / documentación
+NUEVO,frontend/tests/e2e/sprint1.spec.js,Transversal / pruebas / documentación
+NUEVO,frontend/tests/unit/api.test.js,Transversal / pruebas / documentación
+NUEVO,frontend/tests/unit/productos.test.js,Transversal / pruebas / documentación
+NUEVO,frontend/vitest.config.js,Transversal / pruebas / documentación

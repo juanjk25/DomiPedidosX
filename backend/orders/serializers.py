@@ -1,9 +1,26 @@
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
+from datetime import date
+import re
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from .models import Cliente, CredencialCliente, Sede, Producto, Pedido, DetallePedido
+
+from .models import (
+    Cliente,
+    CredencialCliente,
+    Sede,
+    Producto,
+    Pedido,
+    DetallePedido,
+    PerfilTrabajador,
+    Categoria,
+    CredencialEmpleado,
+    AuditoriaPersonal,
+)
+from .permissions import role_of, branch_of
+
 
 User = get_user_model()
 
@@ -49,6 +66,47 @@ class RegisterSerializer(serializers.Serializer):
         allow_null=True,
     )
     fecha_nacimiento = serializers.DateField()
+
+    def validate_nombres(self, value):
+        value = value.strip()
+        if not re.fullmatch(r"[^\d\W]+(?: [^\d\W]+)*", value, re.UNICODE):
+            raise serializers.ValidationError("Los nombres solo pueden contener letras.")
+        return value
+
+    def validate_apellidos(self, value):
+        value = value.strip()
+        if not re.fullmatch(r"[^\d\W]+(?: [^\d\W]+)*", value, re.UNICODE):
+            raise serializers.ValidationError("Los apellidos solo pueden contener letras.")
+        return value
+
+    def validate_fecha_nacimiento(self, value):
+        today = date.today()
+        if value < date(1930, 1, 1):
+            raise serializers.ValidationError("La fecha de nacimiento debe ser desde 1930.")
+        if value > today:
+            raise serializers.ValidationError("La fecha de nacimiento no puede ser futura.")
+        return value
+
+
+    def validate_nombres(self, value):
+        value = value.strip()
+        if not re.fullmatch(r"[^\d\W]+(?: [^\d\W]+)*", value, re.UNICODE):
+            raise serializers.ValidationError("Los nombres solo pueden contener letras.")
+        return value
+
+    def validate_apellidos(self, value):
+        value = value.strip()
+        if not re.fullmatch(r"[^\d\W]+(?: [^\d\W]+)*", value, re.UNICODE):
+            raise serializers.ValidationError("Los apellidos solo pueden contener letras.")
+        return value
+
+    def validate_fecha_nacimiento(self, value):
+        today = date.today()
+        if value < date(1930, 1, 1):
+            raise serializers.ValidationError("La fecha de nacimiento debe ser desde 1930.")
+        if value > today:
+            raise serializers.ValidationError("La fecha de nacimiento no puede ser futura.")
+        return value
 
     def validate_email(self, value):
         value = value.strip().lower()
@@ -117,6 +175,7 @@ class RegisterSerializer(serializers.Serializer):
         return user
 
 
+
 class SedeSerializer(serializers.ModelSerializer):
     class Meta:
         model = Sede
@@ -130,24 +189,37 @@ class SedeSerializer(serializers.ModelSerializer):
         ]
 
 
-class CategoriaSerializer(serializers.Serializer):
-    """Categorías derivadas del campo tipo_de_producto de Producto."""
+class SedeHorarioSerializer(serializers.ModelSerializer):
+    esta_abierta = serializers.SerializerMethodField()
 
-    id = serializers.IntegerField()
-    nombre = serializers.CharField()
-
-
-class ProductoSerializer(serializers.ModelSerializer):
     class Meta:
-        model = Producto
+        model = Sede
         fields = [
-            "id_producto",
-            "codigo_de_barras",
-            "nombre_producto",
-            "tipo_de_producto",
-            "activo",
-            "precio_venta",
+            "id_sede",
+            "nombre_sede",
+            "horario_atencion_apertura",
+            "horario_atencion_cierre",
+            "esta_abierta",
         ]
+        read_only_fields = ["id_sede", "nombre_sede", "esta_abierta"]
+
+    def get_esta_abierta(self, obj):
+        return obj.esta_en_horario()
+
+    def validate(self, data):
+        apertura = data.get(
+            "horario_atencion_apertura",
+            getattr(self.instance, "horario_atencion_apertura", None),
+        )
+        cierre = data.get(
+            "horario_atencion_cierre",
+            getattr(self.instance, "horario_atencion_cierre", None),
+        )
+        if apertura and cierre and apertura >= cierre:
+            raise serializers.ValidationError(
+                {"horario_atencion_cierre": "La hora de cierre debe ser posterior a la hora de apertura."}
+            )
+        return data
 
 
 class DetallePedidoSerializer(serializers.ModelSerializer):
@@ -264,7 +336,20 @@ class PedidoCreateSerializer(serializers.Serializer):
     def create(self, validated_data):
         items_data = validated_data.pop("items")
         request = self.context["request"]
-        cliente = Cliente.objects.get(credencial__usuario=request.user)
+        try:
+            cliente = Cliente.objects.get(credencial__usuario=request.user)
+        except Cliente.DoesNotExist:
+            raise serializers.ValidationError({"detail": "Esta cuenta no tiene perfil de cliente."})
+        from .catalog_views import in_branch, public_products
+        product_ids = [item["producto_id"] for item in items_data]
+        if len(product_ids) != len(set(product_ids)):
+            raise serializers.ValidationError({"items": "Agrupa las cantidades de cada producto en una sola línea."})
+        # Bloquea las filas mientras se confirma el pedido para validar la publicación.
+        available = in_branch(public_products(), validated_data["sede"].pk).filter(pk__in=product_ids)
+        available_ids = list(available.values_list("pk", flat=True))
+        products = {p.pk: p for p in Producto.objects.select_for_update().filter(pk__in=available_ids)}
+        if len(products) != len(product_ids) or any(not p.activo for p in products.values()):
+            raise serializers.ValidationError({"items": "Un producto ya no está disponible en esta sede. Actualiza el menú."})
 
         pedido = Pedido.objects.create(
             cliente=cliente,
@@ -274,7 +359,7 @@ class PedidoCreateSerializer(serializers.Serializer):
         )
 
         for item in items_data:
-            producto = Producto.objects.get(pk=item["producto_id"])
+            producto = products[item["producto_id"]]
             DetallePedido.objects.create(
                 pedido=pedido,
                 producto=producto,
@@ -297,6 +382,410 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
 
 class TeamMemberStatusSerializer(serializers.Serializer):
     is_active = serializers.BooleanField()
+    motivo = serializers.CharField(
+        max_length=255, required=False, allow_blank=True, default=""
+    )
+
+
+class AuditoriaPersonalSerializer(serializers.ModelSerializer):
+    administrador_username = serializers.CharField(
+        source="administrador.username", read_only=True
+    )
+    usuario_afectado_username = serializers.CharField(
+        source="usuario_afectado.username", read_only=True
+    )
+
+    class Meta:
+        model = AuditoriaPersonal
+        fields = [
+            "id",
+            "administrador",
+            "administrador_username",
+            "usuario_afectado",
+            "usuario_afectado_username",
+            "estado_anterior",
+            "estado_nuevo",
+            "motivo",
+            "fecha_hora",
+        ]
+        read_only_fields = fields
+
+
+class PasswordChangeSerializer(serializers.Serializer):
+    current_password = serializers.CharField(write_only=True)
+    new_password = serializers.CharField(write_only=True, min_length=8)
+    confirm_password = serializers.CharField(write_only=True, min_length=8)
+
+    def validate(self, attrs):
+        user = self.context["request"].user
+        if not user.check_password(attrs["current_password"]):
+            raise serializers.ValidationError(
+                {"current_password": "La contraseña actual no es correcta."}
+            )
+        if attrs["new_password"] != attrs["confirm_password"]:
+            raise serializers.ValidationError(
+                {"confirm_password": "Las contraseñas nuevas no coinciden."}
+            )
+        try:
+            validate_password(attrs["new_password"], user=user)
+        except DjangoValidationError as error:
+            raise serializers.ValidationError({"new_password": error.messages})
+        return attrs
+
+
+class CustomerProfileUpdateSerializer(serializers.Serializer):
+    email = serializers.EmailField(max_length=100)
+    nombres = serializers.CharField(max_length=50)
+    apellidos = serializers.CharField(max_length=50)
+    tipo_documento = serializers.ChoiceField(
+        choices=[("CC", "CC"), ("CE", "CE"), ("NIT", "NIT"), ("TI", "TI")]
+    )
+    numero_documento = serializers.CharField(max_length=20)
+    telefono_cliente = serializers.CharField(
+        max_length=15, required=False, allow_blank=True
+    )
+    extension_telefonica = serializers.CharField(
+        max_length=10, required=False, allow_blank=True
+    )
+    direccion_residencia = serializers.CharField(
+        max_length=150, required=False, allow_blank=True
+    )
+    referencia_direccion = serializers.CharField(
+        max_length=150, required=False, allow_blank=True
+    )
+    latitud = serializers.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        min_value=-90,
+        max_value=90,
+        required=False,
+        allow_null=True,
+    )
+    longitud = serializers.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        min_value=-180,
+        max_value=180,
+        required=False,
+        allow_null=True,
+    )
+    fecha_nacimiento = serializers.DateField()
+
+    def validate_nombres(self, value):
+        value = value.strip()
+        if not re.fullmatch(r"[^\d\W]+(?: [^\d\W]+)*", value, re.UNICODE):
+            raise serializers.ValidationError("Los nombres solo pueden contener letras.")
+        return value
+
+    def validate_apellidos(self, value):
+        value = value.strip()
+        if not re.fullmatch(r"[^\d\W]+(?: [^\d\W]+)*", value, re.UNICODE):
+            raise serializers.ValidationError("Los apellidos solo pueden contener letras.")
+        return value
+
+    def validate_fecha_nacimiento(self, value):
+        today = date.today()
+        if value < date(1930, 1, 1):
+            raise serializers.ValidationError("La fecha de nacimiento debe ser desde 1930.")
+        if value > today:
+            raise serializers.ValidationError("La fecha de nacimiento no puede ser futura.")
+        return value
+
+    def validate_email(self, value):
+        value = value.strip().lower()
+        user = self.context["request"].user
+        cliente = Cliente.objects.filter(credencial__usuario=user).first()
+
+        correo_en_uso = (
+            User.objects.exclude(pk=user.pk).filter(
+                username__iexact=value
+            ).exists()
+            or User.objects.exclude(pk=user.pk).filter(email__iexact=value).exists()
+            or Cliente.objects.exclude(pk=cliente.pk if cliente else None).filter(
+                correo_cliente__iexact=value
+            ).exists()
+        )
+        if correo_en_uso:
+            raise serializers.ValidationError("Ya existe una cuenta con este correo.")
+        return value
+
+    def validate(self, attrs):
+        tiene_latitud = attrs.get("latitud") is not None
+        tiene_longitud = attrs.get("longitud") is not None
+        if tiene_latitud != tiene_longitud:
+            raise serializers.ValidationError(
+                {"latitud": "Envía latitud y longitud juntas."}
+            )
+
+        request = self.context["request"]
+        cliente = Cliente.objects.filter(credencial__usuario=request.user).first()
+        if cliente and (
+            attrs["tipo_documento"] != cliente.tipo_documento
+            or attrs["numero_documento"].strip() != cliente.numero_documento
+        ):
+            raise serializers.ValidationError(
+                {"tipo_documento": "El tipo y número de documento no se pueden modificar."}
+            )
+        tipo = attrs["tipo_documento"]
+        numero = attrs["numero_documento"].strip()
+        duplicado = Cliente.objects.exclude(pk=cliente.pk if cliente else None).filter(
+            tipo_documento=tipo, numero_documento=numero
+        ).exists()
+        if duplicado:
+            raise serializers.ValidationError(
+                {"numero_documento": "Este documento ya está registrado."}
+            )
+        attrs["numero_documento"] = numero
+        return attrs
+
+    @transaction.atomic
+    def update(self, cliente, validated_data):
+        user = cliente.credencial.usuario
+        email = validated_data["email"]
+
+        for field in (
+            "nombres",
+            "apellidos",
+            "telefono_cliente",
+            "extension_telefonica",
+            "direccion_residencia",
+            "referencia_direccion",
+            "latitud",
+            "longitud",
+            "fecha_nacimiento",
+        ):
+            if field in validated_data:
+                setattr(cliente, field, validated_data[field])
+        cliente.correo_cliente = email
+        cliente.save()
+
+        user.email = email
+        user.username = email
+        user.first_name = cliente.nombres
+        user.last_name = cliente.apellidos
+        user.save(update_fields=["email", "username", "first_name", "last_name"])
+        return cliente
+
+
+class TeamMemberSerializer(serializers.ModelSerializer):
+    rol = serializers.CharField(source="perfil_trabajador.rol", default="sin_rol")
+    rol_display = serializers.CharField(
+        source="perfil_trabajador.get_rol_display", default="Sin rol"
+    )
+    sede_id = serializers.IntegerField(
+        source="perfil_trabajador.sede.id_sede", default=None, allow_null=True
+    )
+    sede_nombre = serializers.CharField(
+        source="perfil_trabajador.sede.nombre_sede", default=None, allow_null=True
+    )
+    telefono = serializers.CharField(source="perfil_trabajador.telefono", default="")
+
+    class Meta:
+        model = User
+        fields = [
+            "id", "username", "email", "first_name", "last_name",
+            "rol", "rol_display", "sede_id", "sede_nombre", "telefono", "is_active",
+        ]
+
+
+class TeamMemberCreateSerializer(serializers.Serializer):
+    username = serializers.CharField(max_length=150)
+    email = serializers.EmailField(max_length=254)
+    first_name = serializers.CharField(max_length=150)
+    last_name = serializers.CharField(max_length=150)
+    password = serializers.CharField(write_only=True, min_length=8)
+    rol = serializers.ChoiceField(choices=PerfilTrabajador.Rol.choices)
+    sede_id = serializers.IntegerField(required=False, allow_null=True)
+    telefono = serializers.CharField(max_length=20, required=False, allow_blank=True)
+
+    def validate_email(self, value):
+        if User.objects.filter(email__iexact=value).exists():
+            raise serializers.ValidationError("Ya existe una cuenta registrada con este correo electrónico.")
+        return value.lower()
+
+    def validate_username(self, value):
+        if User.objects.filter(username__iexact=value).exists():
+            raise serializers.ValidationError("Ya existe una cuenta con este nombre de usuario.")
+        return value
+
+    def validate_sede_id(self, value):
+        if value is not None and not Sede.objects.filter(id_sede=value).exists():
+            raise serializers.ValidationError("La sede especificada no existe.")
+        return value
+
+    def create(self, validated_data):
+        rol = validated_data.pop("rol")
+        sede_id = validated_data.pop("sede_id", None)
+        telefono = validated_data.pop("telefono", "")
+        password = validated_data.pop("password")
+        with transaction.atomic():
+            user = User.objects.create(
+                **validated_data, is_staff=True, is_active=True
+            )
+            user.set_password(password)
+            user.save(update_fields=["password"])
+            PerfilTrabajador.objects.create(
+                usuario=user, rol=rol, sede_id=sede_id, telefono=telefono
+            )
+        return user
+
+
+class PasswordChangeSerializer(serializers.Serializer):
+    current_password = serializers.CharField(write_only=True)
+    new_password = serializers.CharField(write_only=True, min_length=8)
+    confirm_password = serializers.CharField(write_only=True, min_length=8)
+
+    def validate(self, attrs):
+        user = self.context["request"].user
+        if not user.check_password(attrs["current_password"]):
+            raise serializers.ValidationError(
+                {"current_password": "La contraseña actual no es correcta."}
+            )
+        if attrs["new_password"] != attrs["confirm_password"]:
+            raise serializers.ValidationError(
+                {"confirm_password": "Las contraseñas nuevas no coinciden."}
+            )
+        try:
+            validate_password(attrs["new_password"], user=user)
+        except DjangoValidationError as error:
+            raise serializers.ValidationError({"new_password": error.messages})
+        return attrs
+
+
+class CustomerProfileUpdateSerializer(serializers.Serializer):
+    email = serializers.EmailField(max_length=100)
+    nombres = serializers.CharField(max_length=50)
+    apellidos = serializers.CharField(max_length=50)
+    tipo_documento = serializers.ChoiceField(
+        choices=[("CC", "CC"), ("CE", "CE"), ("NIT", "NIT"), ("TI", "TI")]
+    )
+    numero_documento = serializers.CharField(max_length=20)
+    telefono_cliente = serializers.CharField(
+        max_length=15, required=False, allow_blank=True
+    )
+    extension_telefonica = serializers.CharField(
+        max_length=10, required=False, allow_blank=True
+    )
+    direccion_residencia = serializers.CharField(
+        max_length=150, required=False, allow_blank=True
+    )
+    referencia_direccion = serializers.CharField(
+        max_length=150, required=False, allow_blank=True
+    )
+    latitud = serializers.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        min_value=-90,
+        max_value=90,
+        required=False,
+        allow_null=True,
+    )
+    longitud = serializers.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        min_value=-180,
+        max_value=180,
+        required=False,
+        allow_null=True,
+    )
+    fecha_nacimiento = serializers.DateField()
+
+    def validate_nombres(self, value):
+        value = value.strip()
+        if not re.fullmatch(r"[^\d\W]+(?: [^\d\W]+)*", value, re.UNICODE):
+            raise serializers.ValidationError("Los nombres solo pueden contener letras.")
+        return value
+
+    def validate_apellidos(self, value):
+        value = value.strip()
+        if not re.fullmatch(r"[^\d\W]+(?: [^\d\W]+)*", value, re.UNICODE):
+            raise serializers.ValidationError("Los apellidos solo pueden contener letras.")
+        return value
+
+    def validate_fecha_nacimiento(self, value):
+        today = date.today()
+        if value < date(1930, 1, 1):
+            raise serializers.ValidationError("La fecha de nacimiento debe ser desde 1930.")
+        if value > today:
+            raise serializers.ValidationError("La fecha de nacimiento no puede ser futura.")
+        return value
+    
+
+    def validate_email(self, value):
+        value = value.strip().lower()
+        user = self.context["request"].user
+        cliente = Cliente.objects.filter(credencial__usuario=user).first()
+
+        correo_en_uso = (
+            User.objects.exclude(pk=user.pk).filter(
+                username__iexact=value
+            ).exists()
+            or User.objects.exclude(pk=user.pk).filter(email__iexact=value).exists()
+            or Cliente.objects.exclude(pk=cliente.pk if cliente else None).filter(
+                correo_cliente__iexact=value
+            ).exists()
+        )
+        if correo_en_uso:
+            raise serializers.ValidationError("Ya existe una cuenta con este correo.")
+        return value
+
+    def validate(self, attrs):
+        tiene_latitud = attrs.get("latitud") is not None
+        tiene_longitud = attrs.get("longitud") is not None
+        if tiene_latitud != tiene_longitud:
+            raise serializers.ValidationError(
+                {"latitud": "Envía latitud y longitud juntas."}
+            )
+
+        request = self.context["request"]
+        cliente = Cliente.objects.filter(credencial__usuario=request.user).first()
+        if cliente and (
+            attrs["tipo_documento"] != cliente.tipo_documento
+            or attrs["numero_documento"].strip() != cliente.numero_documento
+        ):
+            raise serializers.ValidationError(
+                {"tipo_documento": "El tipo y número de documento no se pueden modificar."}
+            )
+        tipo = attrs["tipo_documento"]
+        numero = attrs["numero_documento"].strip()
+        duplicado = Cliente.objects.exclude(pk=cliente.pk if cliente else None).filter(
+            tipo_documento=tipo, numero_documento=numero
+        ).exists()
+        if duplicado:
+            raise serializers.ValidationError(
+                {"numero_documento": "Este documento ya está registrado."}
+            )
+        attrs["numero_documento"] = numero
+        return attrs
+
+    @transaction.atomic
+    def update(self, cliente, validated_data):
+        user = cliente.credencial.usuario
+        email = validated_data["email"]
+
+        for field in (
+            "nombres",
+            "apellidos",
+            "telefono_cliente",
+            "extension_telefonica",
+            "direccion_residencia",
+            "referencia_direccion",
+            "latitud",
+            "longitud",
+            "fecha_nacimiento",
+        ):
+            if field in validated_data:
+                setattr(cliente, field, validated_data[field])
+        cliente.correo_cliente = email
+        cliente.save()
+
+        user.email = email
+        user.username = email
+        user.first_name = cliente.nombres
+        user.last_name = cliente.apellidos
+        user.save(update_fields=["email", "username", "first_name", "last_name"])
+        return cliente
+
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -304,7 +793,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     def get_token(cls, user):
         token = super().get_token(user)
         token["username"] = user.username
-        token["role"] = "admin" if user.is_superuser else "cliente"
+        token["role"] = role_of(user)
         return token
 
     def validate(self, attrs):
@@ -313,6 +802,8 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             "id": self.user.id,
             "username": self.user.username,
             "email": self.user.email,
-            "role": "admin" if self.user.is_superuser else "cliente",
+            "role": role_of(self.user),
+            "sede": branch_of(self.user),
+            "can_manage_menu": role_of(self.user) in {"operator", "admin"},
         }
         return data

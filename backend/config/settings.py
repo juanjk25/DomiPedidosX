@@ -1,4 +1,5 @@
 import os
+import sys
 from datetime import timedelta
 from pathlib import Path
 
@@ -61,24 +62,33 @@ TEMPLATES = [
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
-DATABASE_URL = os.getenv("DATABASE_URL")
+if "test" in sys.argv:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": ":memory:",
+        }
+    }
+else:
+    DATABASE_URL = os.getenv("DATABASE_URL")
 
-if not DATABASE_URL:
-    raise ImproperlyConfigured(
-        "Configura DATABASE_URL en el archivo .env de la carpeta raíz del proyecto."
-    )
+    if not DATABASE_URL:
+        raise ImproperlyConfigured(
+            "Configura DATABASE_URL en el archivo .env de la carpeta raíz del proyecto."
+        )
 
-DATABASES = {
-    "default": dj_database_url.parse(
-        DATABASE_URL,
-        conn_max_age=600,
-        conn_health_checks=True,
-    )
-}
-DATABASES["default"].setdefault("OPTIONS", {}).setdefault(
-    "sslmode",
-    "require",
-)
+    DATABASES = {
+        "default": dj_database_url.parse(
+            DATABASE_URL,
+            conn_max_age=600,
+            conn_health_checks=True,
+        )
+    }
+    if DATABASES["default"]["ENGINE"].endswith("postgresql"):
+        DATABASES["default"].setdefault("OPTIONS", {}).setdefault(
+            "sslmode",
+            "require",
+        )
 
 AUTH_PASSWORD_VALIDATORS = [
     {
@@ -161,3 +171,12 @@ DEFAULT_FROM_EMAIL = os.getenv(
 )
 FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 PASSWORD_RESET_TIMEOUT = 3600
+
+# HU-A7: consola en desarrollo; SMTP configurable sin credenciales en el código.
+EMAIL_HOST = os.getenv("EMAIL_HOST", "localhost")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
+EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER", "")
+EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD", "")
+EMAIL_USE_TLS = os.getenv("EMAIL_USE_TLS", "true").lower() == "true"
+EMAIL_USE_SSL = os.getenv("EMAIL_USE_SSL", "false").lower() == "true"
+EMAIL_TIMEOUT = 10

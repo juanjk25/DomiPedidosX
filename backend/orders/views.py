@@ -1,5 +1,6 @@
 import logging
 
+from django.db import transaction
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.password_validation import validate_password
@@ -12,17 +13,22 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.views import TokenObtainPairView
-from .models import Cliente, Sede, Producto, Pedido
+from .models import Cliente, Sede, Pedido, Producto, Categoria, AuditoriaPersonal
+from .permissions import role_of, branch_of, IsAdministrator, IsOrderManager
 from .serializers import (
     RegisterSerializer,
     PasswordResetRequestSerializer,
     PasswordResetConfirmSerializer,
     TeamMemberStatusSerializer,
+    TeamMemberSerializer,
+    TeamMemberCreateSerializer,
+    AuditoriaPersonalSerializer,
     SedeSerializer,
-    CategoriaSerializer,
-    ProductoSerializer,
+    SedeHorarioSerializer,
     PedidoSerializer,
     PedidoCreateSerializer,
+    CustomerProfileUpdateSerializer,
+    PasswordChangeSerializer,
     CustomTokenObtainPairSerializer,
 )
 
@@ -31,6 +37,7 @@ logger = logging.getLogger(__name__)
 
 
 class RegisterView(APIView):
+    authentication_classes = []
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
@@ -52,6 +59,7 @@ class RegisterView(APIView):
 
 
 class PasswordResetRequestView(APIView):
+    authentication_classes = []
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
@@ -103,6 +111,7 @@ class PasswordResetRequestView(APIView):
 
 
 class PasswordResetConfirmView(APIView):
+    authentication_classes = []
     permission_classes = [permissions.AllowAny]
 
     def post(self, request):
@@ -152,26 +161,70 @@ class PasswordResetConfirmView(APIView):
         )
 
 
+class PasswordChangeView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        serializer = PasswordChangeSerializer(
+            data=request.data,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+        request.user.set_password(serializer.validated_data["new_password"])
+        request.user.save(update_fields=["password"])
+        return Response(
+            {"message": "La contraseña se cambió correctamente."},
+            status=status.HTTP_200_OK,
+        )
+
+
 class MeView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
         user = request.user
+        data = {
+            "id": user.id, "email": user.email, "username": user.username,
+            "role": role_of(user), "sede": branch_of(user),
+            "can_manage_menu": role_of(user) in {"operator", "admin"},
+        }
         try:
             cliente = Cliente.objects.get(credencial__usuario=user)
-            return Response({
-                "id": user.id,
-                "email": user.email,
-                "nombres": cliente.nombres,
-                "apellidos": cliente.apellidos,
+            data.update({
+                "nombres": cliente.nombres, "apellidos": cliente.apellidos,
+                "tipo_documento": cliente.tipo_documento,
+                "numero_documento": cliente.numero_documento,
                 "telefono": cliente.telefono_cliente,
+                "telefono_cliente": cliente.telefono_cliente,
+                "extension_telefonica": cliente.extension_telefonica,
+                "direccion_residencia": cliente.direccion_residencia,
+                "referencia_direccion": cliente.referencia_direccion,
+                "latitud": str(cliente.latitud) if cliente.latitud is not None else None,
+                "longitud": str(cliente.longitud) if cliente.longitud is not None else None,
+                "fecha_nacimiento": cliente.fecha_nacimiento.isoformat(),
             })
         except Cliente.DoesNotExist:
-            return Response({
-                "id": user.id,
-                "email": user.email,
-                "role": "admin",
-            })
+            pass
+        return Response(data)
+
+    def patch(self, request):
+        try:
+            cliente = Cliente.objects.select_related("credencial__usuario").get(
+                credencial__usuario=request.user
+            )
+        except Cliente.DoesNotExist:
+            return Response(
+                {"detail": "Esta cuenta no tiene perfil de cliente."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = CustomerProfileUpdateSerializer(
+            data=request.data,
+            context={"request": request},
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.update(cliente, serializer.validated_data)
+        return MeView().get(request)
 
 
 class BranchListView(generics.ListAPIView):
@@ -180,32 +233,14 @@ class BranchListView(generics.ListAPIView):
     queryset = Sede.objects.all()
 
 
-class CategoryListView(APIView):
-    permission_classes = [permissions.AllowAny]
+class SedeHorarioView(generics.RetrieveUpdateAPIView):
+    queryset = Sede.objects.all()
+    serializer_class = SedeHorarioSerializer
 
-    def get(self, request):
-        categorias = (
-            Producto.objects
-            .values_list("tipo_de_producto", flat=True)
-            .distinct()
-        )
-        data = [
-            {"id": index + 1, "nombre": nombre}
-            for index, nombre in enumerate(categorias)
-        ]
-        return Response(data)
-
-
-class ProductListView(generics.ListAPIView):
-    permission_classes = [permissions.AllowAny]
-    serializer_class = ProductoSerializer
-
-    def get_queryset(self):
-        qs = Producto.objects.filter(activo=True)
-        categoria = self.request.query_params.get("categoria")
-        if categoria:
-            qs = qs.filter(tipo_de_producto=categoria)
-        return qs
+    def get_permissions(self):
+        if self.request.method in permissions.SAFE_METHODS:
+            return [permissions.AllowAny()]
+        return [permissions.IsAuthenticated(), IsOrderManager()]
 
 
 class OrderListCreateView(APIView):
@@ -272,7 +307,7 @@ class OrderStatusView(APIView):
 
 
 class CustomerListView(APIView):
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [IsOrderManager]
 
     def get(self, request):
         clientes = Cliente.objects.select_related("credencial__usuario").all()
@@ -289,8 +324,26 @@ class CustomerListView(APIView):
         return Response(data)
 
 
+class TeamMemberListCreateView(APIView):
+    permission_classes = [IsAdministrator]
+
+    def get(self, request):
+        workers = User.objects.filter(is_staff=True).select_related(
+            "perfil_trabajador__sede"
+        ).order_by("-date_joined")
+        return Response(TeamMemberSerializer(workers, many=True).data)
+
+    def post(self, request):
+        serializer = TeamMemberCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        return Response(
+            TeamMemberSerializer(serializer.save()).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
 class TeamMemberStatusView(APIView):
-    permission_classes = [permissions.IsAdminUser]
+    permission_classes = [IsAdministrator]
 
     def patch(self, request, pk):
         serializer = TeamMemberStatusSerializer(data=request.data)
@@ -305,6 +358,7 @@ class TeamMemberStatusView(APIView):
             )
 
         is_active = serializer.validated_data["is_active"]
+        motivo = serializer.validated_data.get("motivo", "").strip()
 
         if member.pk == request.user.pk and not is_active:
             return Response(
@@ -316,16 +370,49 @@ class TeamMemberStatusView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        member.is_active = is_active
-        member.save(update_fields=["is_active"])
+        estado_anterior = member.is_active
 
-        return Response({
-            "id": member.id,
-            "username": member.username,
-            "email": member.email,
-            "is_active": member.is_active,
-        })
+        with transaction.atomic():
+            member.is_active = is_active
+            member.save(update_fields=["is_active"])
+
+            auditoria = AuditoriaPersonal.objects.create(
+                administrador=request.user,
+                usuario_afectado=member,
+                estado_anterior=estado_anterior,
+                estado_nuevo=is_active,
+                motivo=motivo,
+            )
+
+        logger.info(
+            "Auditoría personal: admin=%s cambió is_active de %s (%s -> %s)",
+            request.user.username,
+            member.username,
+            estado_anterior,
+            is_active,
+        )
+
+        return Response(
+            {
+                "id": member.id,
+                "username": member.username,
+                "email": member.email,
+                "is_active": member.is_active,
+                "auditoria": AuditoriaPersonalSerializer(auditoria).data,
+            }
+        )
+
+
+class TeamMemberAuditListView(generics.ListAPIView):
+    permission_classes = [IsAdministrator]
+    serializer_class = AuditoriaPersonalSerializer
+
+    def get_queryset(self):
+        return AuditoriaPersonal.objects.select_related(
+            "administrador", "usuario_afectado"
+        ).all()
 
 
 class CustomTokenObtainPairView(TokenObtainPairView):
+    authentication_classes = []
     serializer_class = CustomTokenObtainPairSerializer

@@ -10,3 +10,9 @@ dist/
 .env.*
 !.env.example
 venv/
+.venv-1/
+
+# Pruebas locales del sprint 1
+frontend/test-results/
+frontend/playwright-report/
+frontend/.e2e-data/

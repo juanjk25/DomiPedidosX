@@ -95,6 +95,63 @@ class Sede(models.Model):
         db_table = "sedes"
 
 
+class Categoria(models.Model):
+    nombre = models.CharField(max_length=50)
+    descripcion = models.CharField(max_length=500, blank=True, null=True)
+    # NULL conserva categorías antiguas aún pendientes de asignación.
+    sede = models.ForeignKey(Sede, on_delete=models.PROTECT, null=True, blank=True)
+    activo = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "categorias"
+        ordering = ["nombre"]
+        constraints = [models.UniqueConstraint(fields=("sede", "nombre"), name="uq_categoria_sede_nombre")]
+
+    def __str__(self):
+        return self.nombre
+
+
+class PerfilTrabajador(models.Model):
+    class Rol(models.TextChoices):
+        OPERADOR = "operador_sede", "Operador de sede"
+        COCINA = "cocina", "Cocina"
+        REPARTIDOR = "repartidor", "Repartidor"
+        ADMINISTRADOR = "administrador", "Administrador"
+
+    usuario = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="perfil_trabajador",
+    )
+    rol = models.CharField(max_length=20, choices=Rol.choices)
+    sede = models.ForeignKey(
+        Sede,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="trabajadores",
+    )
+    telefono = models.CharField(max_length=20, blank=True)
+
+    class Meta:
+        db_table = "perfil_trabajador"
+
+
+class PerfilPersonal(models.Model):
+    """Asignación mínima para integrar HU-A9 con la gestión de menú."""
+
+    usuario = models.OneToOneField(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="perfil_personal"
+    )
+    rol = models.CharField(max_length=20, choices=[
+        ("operator", "Operador"), ("kitchen", "Cocina"), ("courier", "Repartidor")
+    ])
+    sede = models.ForeignKey(Sede, on_delete=models.PROTECT)
+
+    class Meta:
+        db_table = "perfil_personal"
+
+
 class Producto(models.Model):
     id_producto = models.AutoField(primary_key=True)
     codigo_de_barras = models.CharField(max_length=30, unique=True)
@@ -103,6 +160,14 @@ class Producto(models.Model):
     activo = models.BooleanField(default=True)
     precio_compra = models.DecimalField(max_digits=12, decimal_places=2)
     precio_venta = models.DecimalField(max_digits=12, decimal_places=2)
+    categoria = models.ForeignKey(
+        Categoria, on_delete=models.PROTECT, null=True, blank=True, related_name="productos"
+    )
+    sede = models.ForeignKey(
+        Sede, on_delete=models.PROTECT, null=True, blank=True, related_name="productos"
+    )
+    imagen_url = models.URLField(max_length=500, blank=True)
+    tiempo_preparacion = models.PositiveSmallIntegerField(null=True, blank=True)
 
     class Meta:
         db_table = "productos"
@@ -147,6 +212,18 @@ class Empleado(models.Model):
 
     class Meta:
         db_table = "empleados"
+
+
+class CredencialEmpleado(models.Model):
+    empleado = models.OneToOneField(Empleado, on_delete=models.CASCADE, related_name="credencial")
+    usuario = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="empleado_credencial",
+    )
+
+    class Meta:
+        db_table = "empleado_credencial"
 
 
 class Administrador(models.Model):
@@ -263,3 +340,27 @@ class Factura(models.Model):
 
     class Meta:
         db_table = "factura"
+
+class AuditoriaPersonal(models.Model):
+    administrador = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="auditorias_personal_realizadas",
+    )
+    usuario_afectado = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="auditorias_personal_recibidas",
+    )
+    estado_anterior = models.BooleanField()
+    estado_nuevo = models.BooleanField()
+    motivo = models.CharField(max_length=255, blank=True, default="")
+    fecha_hora = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "auditoria_personal"
+        ordering = ["-fecha_hora"]
+
+    def __str__(self):
+        accion = "activó" if self.estado_nuevo else "desactivó"
+        return f"{self.administrador} {accion} a {self.usuario_afectado}"
